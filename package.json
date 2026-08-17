@@ -1,0 +1,50 @@
+{
+  "name": "freemoney-ai",
+  "version": "1.0.0",
+  "description": "Legitimate assistance-discovery platform for grants, financial aid, and benefits.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/db/seed.ts",
+    "sync": "tsx src/scripts/sync-sources.ts",
+    "discover": "tsx src/scripts/discover-apis.ts"
+  },
+  "keywords": [
+    "grants",
+    "benefits",
+    "financial-assistance",
+    "government-aid",
+    "scholarships",
+    "housing",
+    "utilities",
+    "ai-matching"
+  ],
+  "author": "FreeMoney-AI Team",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.3",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.5",
+    "@types/pg": "^8.11.11",
+    "@types/supertest": "^6.0.2",
+    "@types/uuid": "^10.0.0",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.6"
+  }
+}
