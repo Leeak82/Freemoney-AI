@@ -19,18 +19,34 @@
 
 ---
 
-### Phase 2: Real Assistance Expansion
-- [ ] Direct state-level benefit registry ingestion (e.g. CA Benefits, NY HRA, WA DSHS)
-- [ ] Utility assistance connectors (LIHEAP state allocation portals)
-- [ ] Emergency food and housing voucher directories (HUD CoC API)
-- [ ] Top 500 philanthropic grant foundational feeds
-- [ ] Verified formation providers for U.S. states and territories
-- [ ] State/local license and permit provider integrations
-- [ ] Official contracting, certification, incubator, and workforce program feeds
+### Phase 2: Real Assistance Data Network (Current Status: COMPLETED)
+- [x] Current documented Grants.gov search and opportunity-detail contracts
+- [x] Configurable pagination, timeout, request spacing, retry, and backoff
+- [x] `SUCCESS`, `PARTIAL`, and `FAILED` sync accounting with classified errors
+- [x] Active, expired, closed, paused, and unknown opportunity states
+- [x] Source-specific metadata and many-source provenance retention
+- [x] Primary and fallback fingerprint deduplication
+- [x] Official program/application/third-party link distinction
+- [x] Searchable local PostgreSQL cache; no upstream calls during user search
+- [x] Review-only candidate importers for both requested public API catalogs
+- [x] Registered federal resources and open data without misrepresenting them as funding feeds
+- [x] Status-aware deterministic search and source administration
+- [x] Automated live Grants.gov sync-to-search acceptance coverage
+
+Deferred intentionally because no suitable verified opportunity feed was established in this phase:
+- Direct state/local benefit registries and LIHEAP administering-agency connectors
+- HUD property/resource data adapter (HUD EGIS remains registered as open data)
+- FEMA disaster-program adapter (OpenFEMA remains registered as open data)
+- Verified state formation, license, and permit providers
+- Foundation, contracting, certification, incubator, and workforce feeds
 
 ---
 
-### Phase 3: AI Matching Intelligence
+### Phase 3: Verified State/Local Expansion and Matching Intelligence
+- [ ] Add a jurisdiction provider registry with one verified state pilot, contract tests, and field-level provenance
+- [ ] Build explicit adapters for program catalogs—not general agency pages or historical award datasets
+- [ ] Add ZIP-to-county/city resolution from an authoritative geographic dataset
+- [ ] Review and promote useful catalog candidates one at a time
 - [ ] Configurable LLM-driven eligibility reasoning (Anthropic / OpenAI / Local models)
 - [ ] Natural language query parsing ("I am a single mom in Pierce County needing help with electric bills")
 - [ ] Document OCR & pre-qualification verification

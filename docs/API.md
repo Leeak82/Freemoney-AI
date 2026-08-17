@@ -60,38 +60,42 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
         {
           "opportunity": {
             "id": "uuid",
-            "title": "Title X Family Planning Services",
-            "provider_name": "Office of the Assistant Secretary for Health",
+            "title": "<source-published title>",
+            "provider_name": "<source-published provider>",
             "category": "grants",
-            "deadline": "2027-01-11T00:00:00.000Z",
-            "source_url": "https://www.grants.gov/search-results-detail/361754"
+            "deadline": null,
+            "location_scope": "UNKNOWN",
+            "source_url": "https://www.grants.gov/search-results-detail/<id>",
+            "application_url": null,
+            "application_url_verified": false,
+            "status": "ACTIVE"
           },
-          "match_score": 85,
-          "confidence": "HIGH",
-          "match_status": "LIKELY_MATCH",
-          "why_you_may_qualify": [
-            "You qualify geographically: Program is open nationwide."
-          ],
-          "missing_information": [],
+          "match_score": null,
+          "confidence": "LOW",
+          "match_status": "NEEDS_VERIFICATION",
+          "why_you_may_qualify": [],
+          "missing_information": ["Geographic eligibility requires verification."],
           "potential_disqualifiers": [],
           "source_provenance": {
             "source_name": "Grants.gov",
-            "source_url": "https://www.grants.gov/search-results-detail/361754",
+            "source_url": "https://www.grants.gov/search-results-detail/<id>",
             "official_source": true,
             "trust_level": "OFFICIAL_GOVERNMENT",
             "last_verified": "2026-08-17",
-            "source_opportunity_id": "361754"
-          }
+            "source_opportunity_id": "<source id>",
+            "source_provider": "<source-published provider>"
+          },
+          "application_links": []
         }
       ]
     }
     ```
 
 - **`GET /api/opportunities`**
-  - **Query Parameters:** `category`, `keyword`, `state`, `official_only`, `limit`, `offset`.
+  - **Query Parameters:** `category`, `keyword`, `state`, `county`, `city`, `zip`, `program_type`, `source_id`, `official_only`, `active_only`, `limit`, `offset`.
 
 - **`GET /api/opportunities/:id`**
-  - **Description:** Retrieves detailed opportunity overview, provenance verification, and document checklist.
+  - **Description:** Retrieves source-published details, all retained provenance, geographic status, and verified/third-party application-link classification. Missing documents or application links are returned as missing; they are not synthesized.
 
 ### 3. Optional User Profile
 - **`GET /api/profile`**
@@ -170,16 +174,25 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
   - Returns connection latency and status for all registered upstream sources.
 
 - **`GET /api/admin/sync-runs`**
-  - Returns historical sync runs, records inserted/updated, and error logs.
+  - Returns historical sync runs, found/created/updated/deactivated/rejected/error counters, and error logs.
 
 - **`PATCH /api/admin/sources/:id`**
   - Enables or disables a source, or modifies discovery status.
 
 ### 2. Manual Source Ingestion
 - **`POST /api/sync/:source`**
-  - **Example:** `POST /api/sync/grants-gov` with `{ "rows": 50 }`.
+  - **Example:** `POST /api/sync/grants-gov` with `{ "rows": 25, "max_pages": 2, "include_details": true }`.
   - Triggers a real API ingestion run against the upstream provider.
+  - Optional Grants.gov filters include `keyword`, `opp_statuses`, `agency`, and `funding_category`.
 
 ### 3. Candidate API Discovery
 - **`POST /api/admin/discover-apis`**
-  - Scans `public-apis` catalogs, parses markdown tables, and classifies candidates.
+  - Body: `{ "catalog_source_id": "public-api-lists" }` or `{ "catalog_source_id": "n0shake-public-apis" }`.
+  - Parses and persists catalog candidates as `DISCOVERED`; it never activates them.
+
+- **`GET /api/admin/source-candidates`**
+  - Optional query filters: `status`, `category`.
+
+- **`PATCH /api/admin/source-candidates/:id`**
+  - Advances one candidate through an enforced lifecycle.
+  - An `UNKNOWN`-trust candidate cannot transition to `ACTIVE`.

@@ -11,14 +11,23 @@
 - FreeMoney-AI never impersonates government officials or uses unauthorized automated browser scripts against government portals.
 
 ## 3. Data Integrity & Provenance Retention
-- Every record is tagged with `source_id`, `source_url`, `raw_source_identifier`, `last_verified_at`, and `retrieved_at`.
+- Every record is tagged with `source_id`, `source_url`, `source_provider`, `raw_source_identifier`, `source_opportunity_id`, `last_verified_at`, and `retrieved_at`.
 - If an upstream API returns malformed or expired data, it is logged to `sync_errors` and excluded from user-facing search results.
+- Application URLs are separately classified and are official only when the source supplies a verified government URL.
+- Community API directories can create review candidates only; they cannot create opportunities or assign themselves official trust.
 
 ## 4. Input Sanitization & SQL Parameterization
 - All database queries use parameterized placeholders (`$1`, `$2`, ...) preventing SQL injection attacks.
 - Search keyword inputs are sanitized.
+- Source text is HTML-stripped during normalization and escaped before browser rendering. External links accept HTTP(S) only.
 
-## 5. Business Formation and Legal Trust
+## 5. External Source Resilience
+- Source calls use bounded timeouts, request spacing, page caps, and exponential backoff.
+- HTTP 429, transient server errors, invalid JSON, timeouts, and schema failures are classified and logged.
+- Filtered, page-capped, or partial runs never deactivate unseen records.
+- Unknown geography and missing documents, eligibility, amounts, deadlines, and application links remain unknown.
+
+## 6. Business Formation and Legal Trust
 - FreeMoney-AI is not a government agency, law firm, accountant, or filing service.
 - LLC and formation content is educational, not legal or tax advice.
 - A resource is labeled official only when its organization and government URL have been verified.

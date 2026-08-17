@@ -1,50 +1,75 @@
-# FreeMoney-AI Source Registry & Ingestion Pipeline
+# FreeMoney-AI Source Network
 
-## Initial Registered Sources
+## Source roles
 
-| Source Identifier | Provider | Trust Level | Status | Sync Mechanism |
-| :--- | :--- | :--- | :--- | :--- |
-| **`grants-gov`** | U.S. Dept of Health and Human Services | `OFFICIAL_GOVERNMENT` | `ACTIVE` | REST API (`/search2`, `/fetchOpportunity`) |
-| **`treasury-fiscal-data`** | U.S. Dept of the Treasury | `OFFICIAL_GOVERNMENT` | `ACTIVE` | REST API (`/v1/debt/...`) |
-| **`public-api-lists`** | Community (GitHub Catalog) | `COMMUNITY` | `ACTIVE` | Markdown Table Parser |
-| **`n0shake-public-apis`** | Community (GitHub Catalog) | `COMMUNITY` | `ACTIVE` | Markdown Table Parser |
-| **`followthemoney`** | OpenSecrets / Transparency Org | `OFFICIAL_ORGANIZATION` | `ACTIVE` | REST API (API Key Configurable) |
+The registry separates four roles. Only `OPPORTUNITY_FEED` sources may create searchable opportunities.
 
----
+| Role | Meaning |
+| :--- | :--- |
+| `OPPORTUNITY_FEED` | Published opportunities that can be normalized and synchronized. |
+| `RESOURCE` | Verified official guidance or program navigation, not a machine-readable feed. |
+| `DISCOVERY_CATALOG` | Community directory used only to identify candidates for review. |
+| `OPEN_DATA` | Official data that is useful context but is not automatically an opportunity. |
 
-## Source Verification & Progression Flow
+Lifecycle is `DISCOVERED → REVIEW → VERIFIED → ACTIVE`; broken sources may be `DISABLED`. Candidate catalog entries are persisted in `source_candidates` as `DISCOVERED` and cannot become active until an administrator completes each review step.
 
-Candidate data sources progress through a three-stage lifecycle:
+## Active opportunity feed
 
-$$\text{DISCOVERED} \longrightarrow \text{REVIEW} \longrightarrow \text{VERIFIED} \longrightarrow \text{ACTIVE}$$
+### Grants.gov
 
-1. **DISCOVERED:** Extracted via automated catalog discovery from public API repositories. Not exposed in user search results.
-2. **VERIFIED:** Inspected by engineers/admins for authentication type, rate limits, schema stability, and non-prohibitive Terms of Service.
-3. **ACTIVE:** Plugged into `IOpportunitySource`, mapped into the normalization layer, and scheduled for continuous synchronization.
+| Field | Value |
+| :--- | :--- |
+| Registry ID | `grants-gov` |
+| Purpose | Federal grant and cooperative-agreement opportunities |
+| Official URL | https://www.grants.gov |
+| API | `POST https://api.grants.gov/v1/api/search2` and `POST https://api.grants.gov/v1/api/fetchOpportunity` |
+| Documentation | https://www.grants.gov/api |
+| Authentication | None for these two endpoints |
+| Numeric rate limit | Not published in the reviewed documentation; conservative request spacing, timeouts, retries, and page caps are configurable |
+| Geographic coverage | Source-dependent; the API does not publish a universal geography field, so scope remains `UNKNOWN` unless an explicit source field establishes it |
+| Data used | IDs, opportunity number, title, agency, status, dates, description, applicant types, funding instruments/categories, amounts, contacts, Assistance Listing numbers, package metadata, and API-supplied application URL |
+| Sync frequency | Configured as daily; no production scheduler is enabled by default |
+| Trust | `OFFICIAL_GOVERNMENT` |
+| Verification | `ACTIVE`; live search and detail calls verified August 17, 2026 |
 
-## Verified Business Guidance Resources
+`fetchOpportunity` expects `{ "opportunityId": number }`. A Grants.gov detail page is the official program page. It is not labeled an official application link. An API-supplied `assistURL` is labeled official only when it is an HTTP(S) government host; any other supplied URL remains third-party/unverified.
 
-Business requirement providers currently expose official federal starting points from:
+## Verified official resources and open data
 
-- U.S. Small Business Administration (`sba.gov`) for structure, license, and permit research.
-- Internal Revenue Service (`irs.gov`) for EIN and employer tax guidance.
+These sources are registered for navigation or future adapters. They do not currently generate opportunity rows.
 
-These are guidance resources, not direct opportunity feeds. State filing agencies, state fees, registered-agent rules, and annual-report obligations are deliberately returned as `NEEDS_VERIFICATION` until a jurisdiction-specific provider is implemented and verified. FreeMoney-AI does not substitute one state’s process for another.
+| Registry ID | Source | Role | API/data availability | Auth | Coverage | Trust/status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `usa-gov-benefits` | [USA.gov Benefits](https://www.usa.gov/benefits) | `RESOURCE` | Official benefit navigation; no opportunity feed used | None | United States | Official / Active |
+| `sba-funding-programs` | [SBA Funding Programs](https://www.sba.gov/funding-programs) | `RESOURCE` | Official program pages. SBA lending APIs require approved institutional access and are not discovery feeds | None for pages | United States | Official / Active |
+| `hud-egis` | [HUD Enterprise GIS](https://egis.hud.gov/arcgis/rest/services) | `OPEN_DATA` | ArcGIS REST housing/property layers; layer limits vary (commonly 1,000 or 5,000) | None | United States/local | Official / Active |
+| `va-benefits` | [VA Benefits](https://www.va.gov/) | `RESOURCE` | VA developer APIs focus on authenticated claims, intake, and reference data, not a public opportunity catalog | None for pages | United States | Official / Active |
+| `irs-credits-deductions` | [IRS Credits and Deductions](https://www.irs.gov/credits-deductions) | `RESOURCE` | Official guidance pages; no opportunity feed used | None | United States | Official / Active |
+| `usda-rural-development` | [USDA Rural Development Programs](https://www.rd.usda.gov/programs-services) | `RESOURCE` | Official program navigation; no general opportunity API verified | None for pages | United States/rural | Official / Active |
+| `dol-benefits` | [DOL Benefits](https://www.dol.gov/general/topic/benefits-leave) | `RESOURCE` | Official guidance; no opportunity feed used | None | United States | Official / Active |
+| `federal-student-aid` | [Federal Student Aid](https://studentaid.gov/understand-aid/types) | `RESOURCE` | Official aid guidance; no opportunity feed used | None for pages | United States | Official / Active |
+| `open-fema` | [OpenFEMA](https://www.fema.gov/about/openfema/api) | `OPEN_DATA` | Free read-only datasets; default 1,000 and documented maximum 10,000 records per request | None | United States/disaster-specific | Official / Active |
+| `hhs-programs` | [HHS Programs and Services](https://www.hhs.gov/programs/index.html) | `RESOURCE` | Official program navigation; HHS grant opportunities are ingested through Grants.gov | None | United States | Official / Active |
+| `treasury-fiscal-data` | [Treasury Fiscal Data](https://fiscaldata.treasury.gov/api-documentation/) | `OPEN_DATA` | Public fiscal datasets, not direct assistance opportunities | None | United States | Official / Active |
 
----
+The application does not convert an assisted property, historical award, loan record, claim API, aggregate payment, or general guidance page into a funding opportunity.
 
-## Adding a New Source
+## Discovery catalogs and review-only sources
 
-To add an assistance provider:
-1. Implement the `IOpportunitySource` interface in `src/sources/`:
-   ```typescript
-   export class MyCustomSource implements IOpportunitySource {
-     getSourceMetadata(): SourceMetadata;
-     validateConnection(): Promise<{ healthy: boolean; latencyMs: number }>;
-     fetchOpportunities(params: SourceFetchParams): Promise<SourceFetchResult>;
-     fetchOpportunityDetail(id: string): Promise<RawOpportunityDetail | null>;
-   }
-   ```
-2. Register the instance in `src/sources/sync-engine.ts`.
-3. Add seed configuration in `src/db/seed-data.ts`.
-4. Run migration & seed scripts.
+| Registry ID | Purpose | Status |
+| :--- | :--- | :--- |
+| `public-api-lists` | Parses `public-api-lists/public-api-lists` Markdown entries into review candidates | Active discovery catalog; never authoritative |
+| `n0shake-public-apis` | Parses `n0shake/Public-APIs` Markdown entries into review candidates | Active discovery catalog; never authoritative |
+| `followthemoney` | Supplementary campaign-finance source registered from the original scope | `REVIEW`, disabled; not treated as a grant feed |
+
+Discovery classifications are: `GRANTS`, `HOUSING`, `RENT`, `UTILITIES`, `FOOD`, `TRANSPORTATION`, `VETERANS`, `DISABILITY`, `EDUCATION`, `SCHOLARSHIPS`, `MEDICAL`, `FAMILY`, `EMERGENCY`, `TAX`, `BUSINESS`, `STARTUP`, `LOANS`, `MICROLOANS`, `GOVERNMENT_CONTRACTING`, `LICENSES`, `PERMITS`, `TRAINING`, `DISASTER`, and `OTHER`.
+
+## Adding an opportunity feed
+
+1. Verify the official contract, terms, authentication, update behavior, and rate guidance.
+2. Implement `IOpportunitySource` with metadata, health check, page fetch, and detail fetch.
+3. Use `ResilientHttpClient` for timeout, retry, backoff, and rate handling.
+4. Normalize only published values; unknown geography, documents, eligibility, amount, and deadline remain unknown.
+5. Register the adapter and seed it as `REVIEW` until live validation succeeds.
+6. Add parser, pagination, failure, provenance, deduplication, and live acceptance coverage.
+7. Promote to `VERIFIED`, then `ACTIVE`, through the administrative review lifecycle.
