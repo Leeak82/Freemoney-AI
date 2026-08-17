@@ -11,6 +11,7 @@ import {
   sourceRegistry,
 } from './registry.js';
 import { TreasuryFiscalDataSource } from './treasury.js';
+import { UsaGovBenefitsSource } from './usa-gov-benefits.js';
 import { OpportunityValidator } from './validator.js';
 
 export type SyncRunStatus = 'SUCCESS' | 'FAILED' | 'PARTIAL';
@@ -42,6 +43,7 @@ interface UpsertResult {
 export class SyncEngine {
   constructor() {
     sourceRegistry.register(new GrantsGovSource());
+    sourceRegistry.register(new UsaGovBenefitsSource());
     sourceRegistry.register(new TreasuryFiscalDataSource());
   }
 

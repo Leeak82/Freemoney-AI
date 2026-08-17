@@ -20,6 +20,11 @@ const envSchema = z.object({
   GRANTS_GOV_PAGE_SIZE: z.string().default('25').transform((val) => parseInt(val, 10)),
   GRANTS_GOV_MAX_PAGES: z.string().default('10').transform((val) => parseInt(val, 10)),
   GRANTS_GOV_FETCH_DETAILS: z.string().default('true').transform((val) => val === 'true'),
+  USA_GOV_BENEFITS_URL: z.string().default(
+    'https://www.usa.gov/s3/files/benefit-finder/api/life-event/all_benefits.json'
+  ),
+  USA_GOV_TIMEOUT_MS: z.string().default('15000').transform((val) => parseInt(val, 10)),
+  USA_GOV_MAX_RETRIES: z.string().default('3').transform((val) => parseInt(val, 10)),
   TREASURY_API_URL: z.string().default('https://api.fiscaldata.treasury.gov/services/api/fiscal_service'),
   AI_MATCHER_PROVIDER: z.enum(['rule_based', 'openai', 'anthropic', 'mock']).default('rule_based'),
   AI_API_KEY: z.string().optional(),

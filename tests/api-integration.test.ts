@@ -241,6 +241,45 @@ describe('FreeMoney-AI Full REST API Suite', () => {
     expect(preserved.rows[0].description).toBe(opportunity.description);
   }, 30_000);
 
+  it('imports official USA.gov benefits without assuming record status', async () => {
+    const sync = await syncEngine.syncSource('usa-gov-benefits', {
+      rows: 100,
+      maxPages: 1,
+    });
+    expect(sync.status).toBe('SUCCESS');
+    expect(sync.fetched).toBeGreaterThan(0);
+
+    const stored = await query<any>(
+      `SELECT * FROM opportunities
+       WHERE source_id='usa-gov-benefits'
+       ORDER BY title LIMIT 1;`
+    );
+    expect(stored.rows.length).toBe(1);
+    const benefit = stored.rows[0];
+    expect(benefit.status).toBe('UNKNOWN');
+    expect(benefit.active).toBe(false);
+    expect(benefit.location_scope).toBe('UNKNOWN');
+    expect(benefit.application_url).toBeNull();
+    expect(benefit.required_documents).toEqual([]);
+    expect(benefit.source_url).toMatch(/^https:\/\/.+\.(gov|mil)\//);
+
+    const searchRes = await request(app)
+      .post('/api/search')
+      .send({
+        source_id: 'usa-gov-benefits',
+        keyword: benefit.title,
+        active_only: false,
+        limit: 10,
+      });
+    expect(searchRes.status).toBe(200);
+    const match = searchRes.body.results.find(
+      (item: any) => item.opportunity.id === benefit.id
+    );
+    expect(match).toBeDefined();
+    expect(match.opportunity.status).toBe('UNKNOWN');
+    expect(match.source_provenance.source_name).toBe('USA.gov Benefit Finder');
+  }, 30_000);
+
   it('POST /api/sync/grants-gov requires admin authentication', async () => {
     const unauthRes = await request(app)
       .post('/api/sync/grants-gov')

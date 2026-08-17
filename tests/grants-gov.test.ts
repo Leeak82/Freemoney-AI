@@ -48,6 +48,7 @@ describe('Grants.gov documented API client', () => {
     const source = new GrantsGovSource('https://api.grants.gov/v1/api', client);
     const result = await source.fetchOpportunities({
       keyword: 'transportation',
+      assistanceListingNumber: '20.910',
       rows: 1,
       startRecordNum: 1,
     });
@@ -68,7 +69,9 @@ describe('Grants.gov documented API client', () => {
       startRecordNum: 1,
       keyword: 'transportation',
       oppStatuses: 'posted',
+      cfda: '20.910',
     });
+    expect(request).not.toHaveProperty('aln');
   });
 
   it('uses opportunityId for fetchOpportunity and maps only published details', async () => {
@@ -128,5 +131,40 @@ describe('Grants.gov documented API client', () => {
     await expect(source.fetchOpportunities({ rows: 1 })).rejects.toThrow(
       /contract error/
     );
+  });
+
+  it('supports current cfdas and forecast detail fields', async () => {
+    const { client } = clientFor({
+      errorcode: 0,
+      msg: 'Webservice Succeeds',
+      data: {
+        id: 400001,
+        opportunityNumber: 'FORECAST-1',
+        opportunityTitle: 'Forecasted official program',
+        owningAgencyCode: 'HHS',
+        docType: 'forecast',
+        forecast: {
+          forecastDesc: '<p>Forecast details from the source.</p>',
+          estApplicationResponseDateStr: '2031-05-10-00-00-00',
+          applicantTypes: [{ id: '21', description: 'Individuals' }],
+          fundingInstruments: [{ id: 'G', description: 'Grant' }],
+          fundingActivityCategories: [{ id: 'HL', description: 'Health' }],
+          topAgencyDetails: { agencyName: 'Health and Human Services' },
+        },
+        cfdas: [{
+          cfdaNumber: '93.001',
+          programTitle: 'Forecast program',
+        }],
+        errorMessages: [],
+      },
+    });
+    const source = new GrantsGovSource('https://api.grants.gov/v1/api', client);
+    const detail = await source.fetchOpportunityDetail('400001');
+    expect(detail).toMatchObject({
+      description: 'Forecast details from the source.',
+      status: 'PAUSED',
+      audiences: ['INDIVIDUAL'],
+    });
+    expect(detail?.subcategories).toContain('ALN-93.001');
   });
 });

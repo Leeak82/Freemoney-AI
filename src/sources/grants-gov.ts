@@ -171,7 +171,7 @@ export class GrantsGovSource implements IOpportunitySource {
       eligibilities: params.eligibility || '',
       agencies: params.agency || '',
       oppStatuses: params.oppStatuses || 'posted',
-      aln: params.assistanceListingNumber || '',
+      cfda: params.assistanceListingNumber || '',
       fundingCategories: params.fundingCategory || '',
       fundingInstruments: params.fundingInstrument || '',
       ...(params.dateRange ? { dateRange: params.dateRange } : {}),
@@ -243,17 +243,31 @@ export class GrantsGovSource implements IOpportunitySource {
         body: JSON.stringify({ opportunityId: numericId }),
       }
     );
-    if (json.errorcode !== 0 || !json.data || !json.data.id) {
+    if (
+      json.errorcode !== 0 ||
+      !json.data ||
+      !json.data.id ||
+      (Array.isArray(json.data.errorMessages) && json.data.errorMessages.length > 0)
+    ) {
       throw new Error(
-        `Grants.gov fetchOpportunity contract error: ${json.msg || 'missing opportunity detail'}`
+        `Grants.gov fetchOpportunity contract error: ${
+          json.data?.errorMessages?.join('; ') ||
+          json.msg ||
+          'missing opportunity detail'
+        }`
       );
     }
 
     const data = json.data;
-    const synopsis = data.synopsis || {};
+    const synopsis = data.synopsis || data.forecast || {};
     const deadline =
-      parseDate(synopsis.responseDateStr) || parseDate(synopsis.responseDate);
-    const sourceStatus = data.docType === 'forecast' ? 'forecasted' : 'posted';
+      parseDate(synopsis.responseDateStr) ||
+      parseDate(synopsis.responseDate) ||
+      parseDate(synopsis.estApplicationResponseDateStr) ||
+      parseDate(synopsis.estApplicationResponseDate);
+    const sourceStatus = data.forecast || data.docType === 'forecast'
+      ? 'forecasted'
+      : 'posted';
     const status = mapStatus(sourceStatus, deadline);
     const applicantTypes = Array.isArray(synopsis.applicantTypes)
       ? synopsis.applicantTypes
@@ -265,7 +279,11 @@ export class GrantsGovSource implements IOpportunitySource {
       ? synopsis.fundingActivityCategories
       : [];
     const packages = Array.isArray(data.opportunityPkgs) ? data.opportunityPkgs : [];
-    const alns = Array.isArray(data.alns) ? data.alns : [];
+    const assistanceListings = Array.isArray(data.cfdas)
+      ? data.cfdas
+      : Array.isArray(data.alns)
+        ? data.alns
+        : [];
     const assistUrl =
       typeof data.assistURL === 'string' && /^https?:\/\//i.test(data.assistURL)
         ? data.assistURL
@@ -280,7 +298,7 @@ export class GrantsGovSource implements IOpportunitySource {
     return {
       sourceOpportunityId: String(data.id),
       title: cleanText(data.opportunityTitle),
-      description: cleanText(synopsis.synopsisDesc),
+      description: cleanText(synopsis.synopsisDesc || synopsis.forecastDesc),
       providerName: cleanText(agencyDetails?.agencyName || synopsis.agencyName),
       sourceUrl: `${this.baseUrl}/search-results-detail/${data.id}`,
       applicationUrl: assistUrl,
@@ -306,7 +324,10 @@ export class GrantsGovSource implements IOpportunitySource {
       regions: [],
       category: 'grants',
       subcategories: [
-        ...alns.map((aln: any) => `ALN-${aln.alnNumber}`).filter(Boolean),
+        ...assistanceListings
+          .map((listing: any) => listing.cfdaNumber || listing.alnNumber)
+          .filter(Boolean)
+          .map((number: string) => `ALN-${number}`),
         ...fundingCategories
           .map((category: any) => cleanText(category.description))
           .filter(Boolean),
@@ -340,9 +361,9 @@ export class GrantsGovSource implements IOpportunitySource {
         archiveDate: synopsis.archiveDateStr || synopsis.archiveDate,
         estimatedFunding: parseNumber(synopsis.estimatedFunding),
         numberOfAwards: parseNumber(synopsis.numberOfAwards),
-        assistanceListings: alns.map((aln: any) => ({
-          number: aln.alnNumber,
-          title: cleanText(aln.programTitle),
+        assistanceListings: assistanceListings.map((listing: any) => ({
+          number: listing.cfdaNumber || listing.alnNumber,
+          title: cleanText(listing.programTitle),
         })),
         packages: packages.map((pkg: any) => ({
           packageId: pkg.packageId,

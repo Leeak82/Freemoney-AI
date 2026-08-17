@@ -1117,6 +1117,9 @@ async function renderAdminView() {
                 ${s.enabled ? 'Enabled' : 'Disabled'}
               </span>
               <button class="btn btn-outline btn-inspect-source" data-source="${escapeHtml(s.id)}">Inspect</button>
+              ${s.source_role === 'OPPORTUNITY_FEED' && s.enabled ? `
+                <button class="btn btn-outline btn-sync-source" data-source="${escapeHtml(s.id)}">Sync</button>
+              ` : ''}
               <button class="btn btn-outline btn-toggle-source" data-source="${escapeHtml(s.id)}" data-enabled="${s.enabled}" data-status="${escapeHtml(s.discovery_status)}">
                 ${s.enabled ? 'Disable' : 'Enable'}
               </button>
@@ -1198,6 +1201,28 @@ async function renderAdminView() {
           return;
         }
         renderAdminView();
+      });
+    });
+
+    document.querySelectorAll('.btn-sync-source').forEach((button) => {
+      button.addEventListener('click', async () => {
+        if (!requireKey()) return;
+        const sourceId = button.dataset.source;
+        const statusDiv = document.getElementById('sync-status');
+        statusDiv.textContent = `Synchronizing ${sourceId}...`;
+        const response = await fetch(`${API_BASE}/sync/${encodeURIComponent(sourceId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Admin-Key': adminKey },
+          body: JSON.stringify({
+            rows: sourceId === 'grants-gov' ? 10 : 100,
+            max_pages: 1,
+            include_details: sourceId === 'grants-gov',
+          }),
+        });
+        const result = await response.json();
+        statusDiv.textContent = response.ok
+          ? `${sourceId}: ${result.result.status}; fetched ${result.result.fetched}, created ${result.result.created}, updated ${result.result.updated}.`
+          : (result.details || result.error || 'Synchronization failed.');
       });
     });
 
