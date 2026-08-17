@@ -70,6 +70,11 @@ npm run seed
 npm run sync
 ```
 
+Import review-only API-directory candidates (this does not activate them):
+```bash
+npm run discover
+```
+
 ### 5. Run the Application
 ```bash
 npm run dev
