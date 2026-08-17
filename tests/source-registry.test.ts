@@ -41,7 +41,8 @@ describe('Source Registry & Discovery', () => {
 
     expect(candidates.length).toBe(3);
     expect(candidates[0].name).toBe('Census.gov');
-    expect(candidates[0].trustLevel).toBe('OFFICIAL_GOVERNMENT');
+    expect(candidates[0].trustLevel).toBe('UNKNOWN');
+    expect(candidates[0].status).toBe('DISCOVERED');
     expect(candidates[1].classifiedCategory).toBe('GRANTS');
     expect(candidates[2].classifiedCategory).toBe('HOUSING');
   });

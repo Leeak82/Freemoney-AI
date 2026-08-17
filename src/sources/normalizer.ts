@@ -146,14 +146,23 @@ export class OpportunityNormalizer {
     const deadline = detail?.deadline ?? this.parseDate(raw.closeDate);
     const description = detail?.description || raw.description || '';
     const category = this.inferCategory(title, provider, description);
-    const sourceUrl = `https://www.grants.gov/search-results-detail/${raw.sourceOpportunityId}`;
+    const sourceUrl = detail?.sourceUrl || raw.sourceUrl || '';
     const applicationUrl = detail?.applicationUrl || null;
     const locationScope: LocationScope = detail?.locationScope || 'UNKNOWN';
+    const fingerprintLocation = [
+      locationScope,
+      detail?.countryCode || '',
+      ...(detail?.regions || []),
+      ...(detail?.states || []),
+      ...(detail?.counties || []),
+      ...(detail?.cities || []),
+      ...(detail?.zipCodes || []),
+    ].join('|');
     const fingerprint = this.generateFingerprint(
       provider,
       title,
-      locationScope,
-      applicationUrl || sourceUrl,
+      fingerprintLocation,
+      applicationUrl,
       deadline
     );
 
@@ -185,7 +194,7 @@ export class OpportunityNormalizer {
       description,
       provider_name: provider,
       source_id: sourceId,
-      source_url: detail?.sourceUrl || sourceUrl,
+      source_url: sourceUrl,
       application_url: applicationUrl,
       application_url_type: detail?.applicationUrlType || 'UNKNOWN',
       application_url_verified: detail?.applicationUrlVerified || false,

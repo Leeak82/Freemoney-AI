@@ -291,7 +291,11 @@ export class SyncEngine {
     );
 
     if (primary.rows[0]) {
-      await this.updateCanonical(primary.rows[0].id, opportunity);
+      if (rawItem.detail) {
+        await this.updateCanonical(primary.rows[0].id, opportunity);
+      } else {
+        await this.updateCanonicalSummary(primary.rows[0].id, opportunity);
+      }
       await this.upsertProvenance(primary.rows[0].id, opportunity);
       return { id: primary.rows[0].id, created: false, deduplicated: false };
     }
@@ -387,6 +391,39 @@ export class SyncEngine {
       ]
     );
     await this.upsertApplicationLink(id, opportunity);
+  }
+
+  private async updateCanonicalSummary(
+    id: string,
+    opportunity: Opportunity
+  ): Promise<void> {
+    await query(
+      `UPDATE opportunities SET
+         title=$2, provider_name=$3, source_url=$4, category=$5,
+         deadline=$6, official_source=$7, source_provider=$8,
+         source_metadata=COALESCE(source_metadata, '{}'::jsonb) || $9::jsonb,
+         raw_source_identifier=$10, dedup_fingerprint=$11,
+         last_verified_at=$12, retrieved_at=$13, status=$14, active=$15,
+         updated_at=CURRENT_TIMESTAMP
+       WHERE id=$1;`,
+      [
+        id,
+        opportunity.title,
+        opportunity.provider_name,
+        opportunity.source_url,
+        opportunity.category,
+        opportunity.deadline,
+        opportunity.official_source,
+        opportunity.source_provider || opportunity.provider_name,
+        JSON.stringify(opportunity.source_metadata || {}),
+        opportunity.raw_source_identifier,
+        opportunity.dedup_fingerprint,
+        opportunity.last_verified_at,
+        opportunity.retrieved_at,
+        opportunity.status || 'UNKNOWN',
+        opportunity.active,
+      ]
+    );
   }
 
   private opportunityParams(opportunity: Opportunity): unknown[] {

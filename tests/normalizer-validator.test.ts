@@ -33,6 +33,8 @@ describe('Opportunity Normalization, Validation, and Deduplication', () => {
     const validOpp = {
       title: 'Valid Grant Opportunity',
       source_id: 'grants-gov',
+      provider_name: 'Verified Agency',
+      source_provider: 'Verified Agency',
       source_opportunity_id: '12345',
       source_url: 'https://www.grants.gov/12345',
       amount_min: 1000,

@@ -12,13 +12,14 @@ describe('FreeMoney-AI Full REST API Suite', () => {
   beforeAll(async () => {
     await runMigrations();
     await seedDatabase();
-    // Ingest sample batch from real Grants.gov API or fallback
-    try {
-      await syncEngine.syncSource('grants-gov', { rows: 5 });
-    } catch (e) {
-      console.warn('Live Grants.gov sync notice in test suite:', e);
-    }
-  });
+    const result = await syncEngine.syncSource('grants-gov', {
+      rows: 3,
+      maxPages: 1,
+      includeDetails: true,
+    });
+    expect(result.status).not.toBe('FAILED');
+    expect(result.fetched).toBeGreaterThan(0);
+  }, 30_000);
 
   afterAll(async () => {
     await closePool();
@@ -168,6 +169,73 @@ describe('FreeMoney-AI Full REST API Suite', () => {
     expect(Array.isArray(searchRes.body.results)).toBe(true);
   });
 
+  it('completes a real Grants.gov sync-to-search provenance flow', async () => {
+    const stored = await query<any>(
+      `SELECT * FROM opportunities
+       WHERE source_id='grants-gov' AND description <> ''
+       ORDER BY updated_at DESC LIMIT 1;`
+    );
+    expect(stored.rows.length).toBe(1);
+    const opportunity = stored.rows[0];
+    expect(opportunity.source_opportunity_id).toBeTruthy();
+    expect(opportunity.raw_source_identifier).toBe(opportunity.source_opportunity_id);
+    expect(opportunity.source_provider).toBeTruthy();
+    expect(opportunity.source_url).toContain('grants.gov/search-results-detail/');
+    expect(opportunity.official_source).toBe(true);
+    expect(opportunity.location_scope).toBe('UNKNOWN');
+    expect(opportunity.source_metadata?.opportunityNumber).toBeTruthy();
+
+    const searchRes = await request(app)
+      .post('/api/search')
+      .send({
+        category: opportunity.category,
+        keyword: opportunity.title,
+        state: 'WA',
+        official_only: true,
+        limit: 10,
+      });
+    expect(searchRes.status).toBe(200);
+    const match = searchRes.body.results.find(
+      (item: any) => item.opportunity.id === opportunity.id
+    );
+    expect(match).toBeDefined();
+    expect(match.geographic_match.level).toBe('UNKNOWN');
+    expect(match.source_provenance.source_opportunity_id).toBe(
+      opportunity.source_opportunity_id
+    );
+
+    const detailRes = await request(app).get(`/api/opportunities/${opportunity.id}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.opportunity.description.length).toBeGreaterThan(0);
+    expect(detailRes.body.source_provenance.source_url).toBe(opportunity.source_url);
+    if (detailRes.body.opportunity.application_url) {
+      expect(['OFFICIAL_APPLICATION', 'THIRD_PARTY']).toContain(
+        detailRes.body.opportunity.application_url_type
+      );
+      const officialLinks = (detailRes.body.application_links || []).filter(
+        (link: any) => link.official
+      );
+      if (detailRes.body.opportunity.application_url_verified) {
+        expect(officialLinks.length).toBeGreaterThan(0);
+      }
+    }
+
+    const before = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM opportunities WHERE source_id='grants-gov';`
+    );
+    const repeat = await syncEngine.syncSource('grants-gov', {
+      opportunityNumber: opportunity.source_metadata.opportunityNumber,
+      rows: 1,
+      maxPages: 1,
+      includeDetails: false,
+    });
+    expect(repeat.status).not.toBe('FAILED');
+    const after = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM opportunities WHERE source_id='grants-gov';`
+    );
+    expect(after.rows[0].count).toBe(before.rows[0].count);
+  }, 30_000);
+
   it('POST /api/sync/grants-gov requires admin authentication', async () => {
     const unauthRes = await request(app)
       .post('/api/sync/grants-gov')
@@ -177,8 +245,8 @@ describe('FreeMoney-AI Full REST API Suite', () => {
     const authRes = await request(app)
       .post('/api/sync/grants-gov')
       .set('X-Admin-Key', 'test-admin-secret-key')
-      .send({ rows: 5 });
+      .send({ rows: 1, max_pages: 1, include_details: false });
     expect(authRes.status).toBe(200);
     expect(authRes.body.success).toBe(true);
-  });
+  }, 15_000);
 });

@@ -69,6 +69,7 @@ export interface SourceFetchResult {
 export interface RawOpportunityItem {
   sourceOpportunityId: string;
   sourceOpportunityNumber?: string;
+  sourceUrl?: string;
   title: string;
   agencyOrProvider: string;
   agencyCode?: string;

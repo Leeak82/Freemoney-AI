@@ -201,6 +201,7 @@ export class GrantsGovSource implements IOpportunitySource {
     const items: RawOpportunityItem[] = json.data.oppHits.map((hit) => ({
       sourceOpportunityId: String(hit.id),
       sourceOpportunityNumber: hit.number,
+      sourceUrl: `${this.baseUrl}/search-results-detail/${hit.id}`,
       title: cleanText(hit.title),
       agencyOrProvider: cleanText(hit.agency || hit.agencyName || hit.agencyCode),
       agencyCode: hit.agencyCode,
