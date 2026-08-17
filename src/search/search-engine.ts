@@ -230,13 +230,15 @@ export class SearchEngine {
       conditions.push(
         `EXISTS (
           SELECT 1 FROM opportunity_audiences oa
-          WHERE oa.opportunity_id = o.id AND oa.audience = ANY($${audienceIndex})
+          WHERE oa.opportunity_id = o.id AND oa.source_verified=TRUE
+            AND oa.audience = ANY($${audienceIndex})
         )`
       );
       params.push(requestedAudiences);
       audienceRankSql = `CASE WHEN EXISTS (
         SELECT 1 FROM opportunity_audiences oa
-        WHERE oa.opportunity_id=o.id AND oa.audience=ANY($${audienceIndex})
+        WHERE oa.opportunity_id=o.id AND oa.source_verified=TRUE
+          AND oa.audience=ANY($${audienceIndex})
       ) THEN 100 ELSE 0 END`;
     }
 
@@ -244,7 +246,8 @@ export class SearchEngine {
       conditions.push(
         `EXISTS (
           SELECT 1 FROM opportunity_funding_purposes ofp
-          WHERE ofp.opportunity_id = o.id AND ofp.funding_purpose = ANY($${idx++})
+          WHERE ofp.opportunity_id = o.id AND ofp.source_verified=TRUE
+            AND ofp.funding_purpose = ANY($${idx++})
         )`
       );
       params.push(sq.funding_purposes);
@@ -255,6 +258,7 @@ export class SearchEngine {
         `(o.category = 'small-business' OR EXISTS (
           SELECT 1 FROM opportunity_audiences oa
           WHERE oa.opportunity_id = o.id
+            AND oa.source_verified=TRUE
             AND oa.audience IN ('ENTREPRENEUR', 'STARTUP', 'SMALL_BUSINESS', 'EXISTING_BUSINESS', 'NONPROFIT', 'EMPLOYER')
         ))`
       );
@@ -283,11 +287,13 @@ export class SearchEngine {
         s.documentation_url AS source_documentation_url,
         COALESCE((
           SELECT array_agg(oa.audience ORDER BY oa.audience)
-          FROM opportunity_audiences oa WHERE oa.opportunity_id = o.id
+          FROM opportunity_audiences oa
+          WHERE oa.opportunity_id = o.id AND oa.source_verified=TRUE
         ), ARRAY[]::text[]) AS audiences,
         COALESCE((
           SELECT array_agg(ofp.funding_purpose ORDER BY ofp.funding_purpose)
-          FROM opportunity_funding_purposes ofp WHERE ofp.opportunity_id = o.id
+          FROM opportunity_funding_purposes ofp
+          WHERE ofp.opportunity_id = o.id AND ofp.source_verified=TRUE
         ), ARRAY[]::text[]) AS funding_purposes,
         COALESCE((
           SELECT json_agg(json_build_object(
@@ -501,11 +507,13 @@ export class SearchEngine {
         s.documentation_url AS source_documentation_url,
         COALESCE((
           SELECT array_agg(oa.audience ORDER BY oa.audience)
-          FROM opportunity_audiences oa WHERE oa.opportunity_id = o.id
+          FROM opportunity_audiences oa
+          WHERE oa.opportunity_id = o.id AND oa.source_verified=TRUE
         ), ARRAY[]::text[]) AS audiences,
         COALESCE((
           SELECT array_agg(ofp.funding_purpose ORDER BY ofp.funding_purpose)
-          FROM opportunity_funding_purposes ofp WHERE ofp.opportunity_id = o.id
+          FROM opportunity_funding_purposes ofp
+          WHERE ofp.opportunity_id = o.id AND ofp.source_verified=TRUE
         ), ARRAY[]::text[]) AS funding_purposes,
         COALESCE((
           SELECT json_agg(json_build_object(

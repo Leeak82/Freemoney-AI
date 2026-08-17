@@ -509,6 +509,76 @@ SET source_provider = COALESCE(source_provider, provider_name),
     END
 WHERE source_provider IS NULL OR status = 'UNKNOWN';
 
+-- Remove Phase 1 summary assumptions that were not published by Grants.gov.
+UPDATE opportunities
+SET description = CASE
+      WHEN description LIKE 'Official grant opportunity #% published by %'
+        THEN ''
+      ELSE description
+    END,
+    required_documents = CASE
+      WHEN COALESCE(source_metadata->>'documentsSourceVerified', 'false') = 'true'
+        THEN required_documents
+      ELSE ARRAY[]::text[]
+    END,
+    eligibility_summary = CASE
+      WHEN eligibility_summary = 'Eligible applicants include entities specified by program guidelines.'
+        THEN NULL
+      ELSE eligibility_summary
+    END,
+    application_url = CASE WHEN application_url = source_url THEN NULL ELSE application_url END,
+    application_url_type = CASE WHEN application_url = source_url THEN 'UNKNOWN' ELSE application_url_type END,
+    application_url_verified = CASE WHEN application_url = source_url THEN FALSE ELSE application_url_verified END,
+    location_scope = CASE
+      WHEN COALESCE(source_metadata->>'geographicScopeVerified', 'false') <> 'true'
+        THEN 'UNKNOWN'
+      ELSE location_scope
+    END,
+    country_code = CASE
+      WHEN COALESCE(source_metadata->>'geographicScopeVerified', 'false') <> 'true'
+        THEN NULL
+      ELSE country_code
+    END,
+    rolling_deadline = FALSE
+WHERE source_id = 'grants-gov';
+
+UPDATE opportunity_audiences oa
+SET source_verified = CASE
+  WHEN oa.audience = 'INDIVIDUAL' THEN EXISTS (
+    SELECT 1 FROM jsonb_array_elements(COALESCE(o.eligibility_rules->'applicantTypes', '[]'::jsonb)) item
+    WHERE item->>'id' = '21'
+  )
+  WHEN oa.audience = 'SMALL_BUSINESS' THEN EXISTS (
+    SELECT 1 FROM jsonb_array_elements(COALESCE(o.eligibility_rules->'applicantTypes', '[]'::jsonb)) item
+    WHERE item->>'id' = '23'
+  )
+  WHEN oa.audience = 'NONPROFIT' THEN EXISTS (
+    SELECT 1 FROM jsonb_array_elements(COALESCE(o.eligibility_rules->'applicantTypes', '[]'::jsonb)) item
+    WHERE item->>'id' IN ('12', '13')
+  )
+  ELSE FALSE
+END
+FROM opportunities o
+WHERE oa.opportunity_id = o.id AND o.source_id = 'grants-gov';
+
+INSERT INTO opportunity_source_records (
+  opportunity_id, source_id, source_opportunity_id, source_url,
+  source_provider, official_source, retrieved_at, last_verified_at,
+  source_metadata
+)
+SELECT id, source_id, source_opportunity_id, source_url,
+  COALESCE(source_provider, provider_name), official_source,
+  retrieved_at, last_verified_at, source_metadata
+FROM opportunities
+ON CONFLICT (source_id, source_opportunity_id) DO UPDATE SET
+  opportunity_id = EXCLUDED.opportunity_id,
+  source_url = EXCLUDED.source_url,
+  source_provider = EXCLUDED.source_provider,
+  official_source = EXCLUDED.official_source,
+  retrieved_at = EXCLUDED.retrieved_at,
+  last_verified_at = EXCLUDED.last_verified_at,
+  source_metadata = EXCLUDED.source_metadata;
+
 ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS request_parameters JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS records_found INTEGER DEFAULT 0;

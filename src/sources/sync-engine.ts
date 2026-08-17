@@ -176,7 +176,7 @@ export class SyncEngine {
             await this.upsertClassifications(
               upsert.id,
               normalized as Opportunity,
-              Boolean(rawItem.detail)
+              rawItem
             );
           } catch (error: unknown) {
             rejected++;
@@ -503,16 +503,18 @@ export class SyncEngine {
   private async upsertClassifications(
     opportunityId: string,
     opportunity: Opportunity,
-    detailVerified: boolean
+    rawItem: RawOpportunityItem
   ): Promise<void> {
     for (const audience of opportunity.audiences || []) {
+      const sourceVerified =
+        rawItem.detail?.audiences?.includes(audience) || false;
       await query(
         `INSERT INTO opportunity_audiences (
            opportunity_id, audience, source_verified
          ) VALUES ($1, $2, $3)
          ON CONFLICT (opportunity_id, audience) DO UPDATE SET
            source_verified = opportunity_audiences.source_verified OR EXCLUDED.source_verified;`,
-        [opportunityId, audience, detailVerified]
+        [opportunityId, audience, sourceVerified]
       );
     }
     for (const purpose of opportunity.funding_purposes || []) {

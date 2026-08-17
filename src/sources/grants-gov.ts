@@ -353,6 +353,8 @@ export class GrantsGovSource implements IOpportunitySource {
         })),
         docType: data.docType,
         lastUpdatedDate: synopsis.lastUpdatedDate,
+        geographicScopeVerified: false,
+        documentsSourceVerified: false,
       },
       rawPayload: json,
     };
