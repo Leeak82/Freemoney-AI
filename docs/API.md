@@ -97,6 +97,8 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
 - **`GET /api/opportunities/:id`**
   - **Description:** Retrieves source-published details, all retained provenance, geographic status, and verified/third-party application-link classification. Missing documents or application links are returned as missing; they are not synthesized.
 
+USA.gov Benefit Finder records have `status: "UNKNOWN"` because the source does not publish current open/closed status. They are excluded by the default active-only search and can be inspected with `{ "source_id": "usa-gov-benefits", "active_only": false }`.
+
 ### 3. Optional User Profile
 - **`GET /api/profile`**
   - **Headers:** `X-User-Id: <uuid>` (or query `?user_id=<uuid>`)

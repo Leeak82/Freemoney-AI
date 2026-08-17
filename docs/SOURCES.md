@@ -13,7 +13,7 @@ The registry separates four roles. Only `OPPORTUNITY_FEED` sources may create se
 
 Lifecycle is `DISCOVERED → REVIEW → VERIFIED → ACTIVE`; broken sources may be `DISABLED`. Candidate catalog entries are persisted in `source_candidates` as `DISCOVERED` and cannot become active until an administrator completes each review step.
 
-## Active opportunity feed
+## Active opportunity feeds
 
 ### Grants.gov
 
@@ -34,13 +34,33 @@ Lifecycle is `DISCOVERED → REVIEW → VERIFIED → ACTIVE`; broken sources may
 
 `fetchOpportunity` expects `{ "opportunityId": number }`. A Grants.gov detail page is the official program page. It is not labeled an official application link. An API-supplied `assistURL` is labeled official only when it is an HTTP(S) government host; any other supplied URL remains third-party/unverified.
 
+The current production contract uses the request filter `cfda` and detail array `cfdas`. The parser also accepts the older documented `aln`/`alns` form and supports both `synopsis` and `forecast` detail records.
+
+### USA.gov Benefit Finder
+
+| Field | Value |
+| :--- | :--- |
+| Registry ID | `usa-gov-benefits` |
+| Purpose | Federal benefit records for disability, retirement, and death-related life events |
+| Official URL | https://www.usa.gov/benefit-finder |
+| Data | First-party static JSON at `https://www.usa.gov/s3/files/benefit-finder/api/life-event/all_benefits.json` |
+| Documentation | No formal API/schema contract; schema is monitored and rejected on incompatible change |
+| Authentication | None |
+| Numeric rate limit | Not published; the entire file is cached during synchronization |
+| Geographic coverage | Not consistently published per record; normalized as `UNKNOWN` |
+| Data used | Title, summary, official agency, official program URL, and published eligibility criteria |
+| Sync frequency | Configured as daily |
+| Trust | `OFFICIAL_GOVERNMENT` |
+| Verification | Feed `ACTIVE`; live JSON retrieval and 64-record import verified August 17, 2026 |
+
+The feed does not publish per-record open/closed status, deadlines, required documents, amounts, or direct application links. Imported records therefore remain `status=UNKNOWN`, `active=false`, and are excluded from active-only search. This prevents stale entries—such as time-limited disaster programs—from being presented as currently open merely because they remain in the Benefit Finder file.
+
 ## Verified official resources and open data
 
 These sources are registered for navigation or future adapters. They do not currently generate opportunity rows.
 
 | Registry ID | Source | Role | API/data availability | Auth | Coverage | Trust/status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `usa-gov-benefits` | [USA.gov Benefits](https://www.usa.gov/benefits) | `RESOURCE` | Official benefit navigation; no opportunity feed used | None | United States | Official / Active |
 | `sba-funding-programs` | [SBA Funding Programs](https://www.sba.gov/funding-programs) | `RESOURCE` | Official program pages. SBA lending APIs require approved institutional access and are not discovery feeds | None for pages | United States | Official / Active |
 | `hud-egis` | [HUD Enterprise GIS](https://egis.hud.gov/arcgis/rest/services) | `OPEN_DATA` | ArcGIS REST housing/property layers; layer limits vary (commonly 1,000 or 5,000) | None | United States/local | Official / Active |
 | `va-benefits` | [VA Benefits](https://www.va.gov/) | `RESOURCE` | VA developer APIs focus on authenticated claims, intake, and reference data, not a public opportunity catalog | None for pages | United States | Official / Active |

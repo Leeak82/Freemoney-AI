@@ -21,6 +21,8 @@
 
 ### Phase 2: Real Assistance Data Network (Current Status: COMPLETED)
 - [x] Current documented Grants.gov search and opportunity-detail contracts
+- [x] Current live Grants.gov `cfda`/`cfdas`, synopsis, and forecast compatibility
+- [x] USA.gov Benefit Finder first-party JSON ingestion with unknown-status safeguards
 - [x] Configurable pagination, timeout, request spacing, retry, and backoff
 - [x] `SUCCESS`, `PARTIAL`, and `FAILED` sync accounting with classified errors
 - [x] Active, expired, closed, paused, and unknown opportunity states

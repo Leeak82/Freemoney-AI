@@ -239,6 +239,13 @@ All opportunity feeds use a shared HTTP client with source-specific timeout, ret
 
 Search pages retain the numeric Grants.gov opportunity ID and opportunity number. Detail enrichment supplies published description, applicant types, funding instruments/categories, award floor/ceiling, response date, agency contacts, Assistance Listing numbers, package identifiers, and a verified application URL only when the API explicitly returns one.
 
+The compatibility parser follows observed production fields (`cfda`, `cfdas`) while tolerating the older documented `aln`/`alns` names. Both synopsis and forecast detail shapes are supported.
+
+### 7.3.1. USA.gov Benefit Finder
+The first-party `all_benefits.json` file is fetched once and cached during each sync. Stable external identifiers are derived from the source URL and title because the feed publishes no record ID. Eligibility labels and acceptable values are preserved verbatim.
+
+The source does not publish record lifecycle, amount, deadline, required-document, application-link, or consistent geographic fields. These values remain unknown; records are stored for verification and excluded from active-only search.
+
 ### 7.4. Status and history
 Opportunities use `ACTIVE | EXPIRED | CLOSED | PAUSED | UNKNOWN`. Expired or closed records remain stored for application history and analytics but are excluded from active search by default. A sync may deactivate unseen records only after a complete, unfiltered source traversal; partial/limited runs never infer removal.
 
