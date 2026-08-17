@@ -44,6 +44,6 @@ describe('Source Registry & Discovery', () => {
     expect(candidates[0].trustLevel).toBe('UNKNOWN');
     expect(candidates[0].status).toBe('DISCOVERED');
     expect(candidates[1].classifiedCategory).toBe('GRANTS');
-    expect(candidates[2].classifiedCategory).toBe('HOUSING');
+    expect(candidates[2].classifiedCategory).toBe('RENT');
   });
 });
