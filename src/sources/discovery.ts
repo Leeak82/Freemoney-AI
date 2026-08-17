@@ -212,7 +212,10 @@ export class PublicApisDiscoveryParser {
   ): Promise<{ discovered: number; persisted: number }> {
     const candidates = await this.fetchAndDiscover(url);
     let persisted = 0;
+    const processedUrls = new Set<string>();
     for (const candidate of candidates) {
+      if (processedUrls.has(candidate.url)) continue;
+      processedUrls.add(candidate.url);
       const result = await query(
         `INSERT INTO source_candidates (
            catalog_source_id, name, description, candidate_url,

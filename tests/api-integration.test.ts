@@ -234,6 +234,11 @@ describe('FreeMoney-AI Full REST API Suite', () => {
       `SELECT COUNT(*)::text AS count FROM opportunities WHERE source_id='grants-gov';`
     );
     expect(after.rows[0].count).toBe(before.rows[0].count);
+    const preserved = await query<{ description: string }>(
+      `SELECT description FROM opportunities WHERE id=$1;`,
+      [opportunity.id]
+    );
+    expect(preserved.rows[0].description).toBe(opportunity.description);
   }, 30_000);
 
   it('POST /api/sync/grants-gov requires admin authentication', async () => {

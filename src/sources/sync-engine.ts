@@ -197,7 +197,12 @@ export class SyncEngine {
         nextStartRecord = page.nextStartRecord;
       }
 
-      if (hasMore) complete = false;
+      if (hasMore) {
+        complete = false;
+        fatalMessage =
+          fatalMessage ||
+          `Synchronization stopped at configured maxPages=${maxPages}; unseen records were not deactivated`;
+      }
       deactivated += await this.expirePastDeadlines(sourceId);
 
       if (this.canDeactivateUnseen(params, complete, errors, seenSourceIds.size)) {
