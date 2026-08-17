@@ -159,3 +159,60 @@ The PostgreSQL schema consists of 14 core entities:
 - **No Secrets in Source:** All configuration managed via `.env` with validation on startup using schema validators.
 - **Admin Endpoints:** Administrative source sync and source mutation protected by `ADMIN_API_KEY`.
 - **Input Sanitization:** Parameterized SQL queries preventing SQL injection, strict payload validation on all REST endpoints.
+
+---
+
+## 6. Phase 1 Scope Expansion: Business + Geographic Intelligence
+
+### 6.1. Dual user paths
+The landing experience branches immediately without registration:
+
+1. `PERSONAL_ASSISTANCE` keeps the original assistance categories and optional personal profile.
+2. `BUSINESS_ASSISTANCE` supports startup guidance, formation, funding, licenses, permits, contracting, certifications, and growth assistance.
+
+Both paths query the same normalized `opportunities` table. Business funding is not stored in a parallel grant database.
+
+### 6.2. Unified opportunity extensions
+The opportunity aggregate gains:
+
+- many-to-many `opportunity_audiences` classifications;
+- richer `opportunity_locations` with country, region, tribal, online, and unknown scopes;
+- optional structured business eligibility rules stored through the existing eligibility model;
+- normalized funding purposes in `opportunity_funding_purposes`.
+
+Search combines the same source trust, deadline, category, audience, and eligibility factors for personal and business users.
+
+### 6.3. Geographic intelligence
+`IGeographicMatcher` is a deterministic, side-effect-free domain service. It accepts a user/business location and an opportunity location and returns:
+
+`EXACT | CITY | COUNTY | STATE | REGION | COUNTRY | NATIONWIDE | ONLINE | NO_MATCH | UNKNOWN`
+
+Unknown geography is never promoted to nationwide. The search database performs conservative candidate filtering; the matcher produces the final geographic outcome and rank contribution.
+
+### 6.4. Business domain
+`businesses` holds ownership and lifecycle identity, while `business_profiles` holds optional, changeable matching attributes. Related tables represent certifications, funding needs, configurable checklists, and verified business requirements. Applications remain unified: `applications.business_id` is nullable and `application_type` indicates personal assistance, business assistance, LLC formation, license, permit, or funding.
+
+Business stages:
+
+`IDEA | PLANNING | FORMATION | PRE_REVENUE | OPERATING | GROWING | EXPANDING | DISTRESSED`
+
+Business structures:
+
+`SOLE_PROPRIETORSHIP | LLC | PARTNERSHIP | S_CORPORATION | C_CORPORATION | NONPROFIT | OTHER | UNKNOWN`
+
+### 6.5. Provider abstractions
+
+```typescript
+interface IBusinessRequirementProvider {
+  findRequirements(input: BusinessRequirementInput): Promise<BusinessRequirementResult[]>;
+}
+
+interface IFormationRequirementProvider {
+  getFormationRequirements(input: FormationRequirementInput): Promise<FormationGuidance>;
+}
+```
+
+Providers may return only source-backed facts. Unsupported states or industries return `NEEDS_VERIFICATION`; they do not receive copied requirements from another jurisdiction. Official `.gov` resources are preferred and every requirement retains organization, URL, source identifier, retrieval time, and verification time.
+
+### 6.6. Startup and LLC workflow
+The startup wizard persists a small business profile first, then derives a configurable checklist appropriate to the selected stage. LLC guidance is structure- and state-aware. Phase 1 exposes the workflow architecture, progress tracking, universal IRS EIN guidance, and verified provider results where available. It never presents formation guidance as legal advice and never submits a filing.

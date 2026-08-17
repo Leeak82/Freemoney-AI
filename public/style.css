@@ -148,6 +148,209 @@ body {
   margin-bottom: 40px;
 }
 
+.path-section {
+  margin: 0 auto 32px;
+  max-width: 940px;
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.path-card {
+  appearance: none;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  align-items: center;
+  text-align: left;
+  color: var(--text-main);
+  background: linear-gradient(145deg, #151f33, #101827);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  padding: 22px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.path-card:hover,
+.path-card.selected {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.28);
+}
+
+.path-card strong {
+  font-size: 1.05rem;
+}
+
+.path-card > span:last-child {
+  grid-column: 2;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.path-icon {
+  grid-row: 1 / span 2;
+  color: var(--primary);
+  font-size: 1.45rem;
+}
+
+.empty-prompt {
+  padding: 28px;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--surface-border);
+  border-radius: 14px;
+  background: rgba(19, 28, 46, 0.55);
+}
+
+.location-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.business-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+  margin-bottom: 28px;
+}
+
+.business-hero h1 {
+  font: 700 2rem/1.2 'Space Grotesk', sans-serif;
+  margin: 4px 0 8px;
+}
+
+.business-hero p {
+  max-width: 720px;
+  color: var(--text-muted);
+}
+
+.eyebrow,
+.wizard-step {
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.trust-note,
+.verification-badge {
+  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.wizard-step {
+  margin: 22px 0 12px;
+}
+
+.wizard-step:first-of-type {
+  margin-top: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.optional-panel {
+  margin: 22px 0;
+  padding: 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+
+.optional-panel summary {
+  color: var(--text-main);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.optional-panel p {
+  margin: 8px 0 12px;
+  font-size: 0.84rem;
+}
+
+.ownership-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.resource-item {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.resource-item p,
+.verification-warning,
+.missing-item {
+  color: var(--text-muted);
+  font-size: 0.83rem;
+  margin: 5px 0;
+}
+
+.resource-item a {
+  color: var(--primary);
+  font-size: 0.83rem;
+}
+
+.missing-item {
+  color: var(--warning);
+}
+
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.business-check-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  text-align: left;
+  color: var(--text-main);
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  padding: 13px;
+  cursor: pointer;
+}
+
+.business-check-item > span:first-child {
+  color: var(--primary);
+  font-size: 1.15rem;
+}
+
+.business-check-item small {
+  display: block;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.business-check-item.completed {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.08);
+}
+
 .category-chips-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -417,6 +620,21 @@ body {
 @media (max-width: 860px) {
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .main-nav {
+    overflow-x: auto;
+  }
+
+  .path-grid,
+  .form-grid,
+  .checklist-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .business-hero {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

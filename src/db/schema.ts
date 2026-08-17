@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS categories (
     description TEXT,
     parent_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     icon VARCHAR(100),
+    audience_type VARCHAR(50) DEFAULT 'BOTH',
     sort_order INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -110,6 +111,8 @@ CREATE TABLE IF NOT EXISTS opportunities (
     deadline TIMESTAMPTZ,
     rolling_deadline BOOLEAN DEFAULT FALSE,
     location_scope VARCHAR(50) DEFAULT 'NATIONWIDE', -- NATIONWIDE, STATE, COUNTY, CITY, ZIP
+    country_code VARCHAR(2) DEFAULT 'US',
+    regions TEXT[] DEFAULT ARRAY[]::TEXT[],
     states TEXT[] DEFAULT ARRAY[]::TEXT[],
     counties TEXT[] DEFAULT ARRAY[]::TEXT[],
     cities TEXT[] DEFAULT ARRAY[]::TEXT[],
@@ -143,10 +146,15 @@ CREATE TABLE IF NOT EXISTS opportunity_categories (
 CREATE TABLE IF NOT EXISTS opportunity_locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    scope VARCHAR(50) DEFAULT 'UNKNOWN',
+    country_code VARCHAR(2),
+    region VARCHAR(100),
     state VARCHAR(50),
     county VARCHAR(100),
     city VARCHAR(100),
     zip_code VARCHAR(20),
+    tribal_area VARCHAR(255),
+    online_only BOOLEAN DEFAULT FALSE,
     location_type VARCHAR(50) DEFAULT 'SERVICE_AREA',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -189,6 +197,8 @@ CREATE TABLE IF NOT EXISTS applications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    business_id UUID,
+    application_type VARCHAR(50) DEFAULT 'PERSONAL_ASSISTANCE',
     status VARCHAR(50) DEFAULT 'DISCOVERED', -- DISCOVERED, REVIEWING, PREPARING, READY_FOR_REVIEW, APPROVED, SUBMITTED, REJECTED, WITHDRAWN, COMPLETED
     notes TEXT,
     checklist JSONB DEFAULT '[]'::jsonb,
@@ -198,6 +208,182 @@ CREATE TABLE IF NOT EXISTS applications (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, opportunity_id)
+);
+
+-- Phase 1 business and geographic extensions are additive so existing deployments migrate in place.
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS audience_type VARCHAR(50) DEFAULT 'BOTH';
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) DEFAULT 'US';
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS regions TEXT[] DEFAULT ARRAY[]::TEXT[];
+ALTER TABLE opportunity_locations ADD COLUMN IF NOT EXISTS scope VARCHAR(50) DEFAULT 'UNKNOWN';
+ALTER TABLE opportunity_locations ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);
+ALTER TABLE opportunity_locations ADD COLUMN IF NOT EXISTS region VARCHAR(100);
+ALTER TABLE opportunity_locations ADD COLUMN IF NOT EXISTS tribal_area VARCHAR(255);
+ALTER TABLE opportunity_locations ADD COLUMN IF NOT EXISTS online_only BOOLEAN DEFAULT FALSE;
+
+-- Unified audience and funding-purpose classification.
+CREATE TABLE IF NOT EXISTS opportunity_audiences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    audience VARCHAR(50) NOT NULL,
+    source_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(opportunity_id, audience)
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_funding_purposes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    funding_purpose VARCHAR(50) NOT NULL,
+    source_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(opportunity_id, funding_purpose)
+);
+
+-- Business identity and optional matching profile.
+CREATE TABLE IF NOT EXISTS businesses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS business_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID UNIQUE NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    business_name VARCHAR(255),
+    business_description TEXT,
+    industry VARCHAR(255),
+    business_stage VARCHAR(50),
+    country VARCHAR(2) DEFAULT 'US',
+    state VARCHAR(50),
+    county VARCHAR(100),
+    city VARCHAR(100),
+    postal_code VARCHAR(20),
+    business_structure VARCHAR(50) DEFAULT 'UNKNOWN',
+    formation_status VARCHAR(100),
+    employee_count INTEGER,
+    annual_revenue NUMERIC(14, 2),
+    estimated_startup_cost NUMERIC(14, 2),
+    funding_needed NUMERIC(14, 2),
+    funding_purpose VARCHAR(50),
+    veteran_owned BOOLEAN,
+    women_owned BOOLEAN,
+    disability_owned BOOLEAN,
+    minority_owned BOOLEAN,
+    rural_business BOOLEAN,
+    other_certifications TEXT[] DEFAULT ARRAY[]::TEXT[],
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS business_certifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    certification_type VARCHAR(100) NOT NULL,
+    status VARCHAR(50) DEFAULT 'UNVERIFIED',
+    issuing_organization VARCHAR(255),
+    source_url TEXT,
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(business_id, certification_type)
+);
+
+CREATE TABLE IF NOT EXISTS business_funding_needs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    funding_purpose VARCHAR(50) NOT NULL,
+    amount_needed NUMERIC(14, 2),
+    notes TEXT,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Configurable startup, formation, license, permit, and funding checklists.
+CREATE TABLE IF NOT EXISTS business_checklists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    checklist_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(business_id, checklist_type)
+);
+
+CREATE TABLE IF NOT EXISTS business_checklist_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    checklist_id UUID NOT NULL REFERENCES business_checklists(id) ON DELETE CASCADE,
+    item_key VARCHAR(100) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    sort_order INTEGER DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'NOT_STARTED',
+    completion_source VARCHAR(50) DEFAULT 'USER',
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(checklist_id, item_key)
+);
+
+-- Verified business formation, license, permit, tax, and employer requirements.
+CREATE TABLE IF NOT EXISTS business_requirements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID REFERENCES businesses(id) ON DELETE CASCADE,
+    requirement_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    agency VARCHAR(255),
+    required_status VARCHAR(50) DEFAULT 'NEEDS_VERIFICATION',
+    jurisdiction_scope VARCHAR(50) DEFAULT 'UNKNOWN',
+    country_code VARCHAR(2),
+    state VARCHAR(50),
+    county VARCHAR(100),
+    city VARCHAR(100),
+    industry VARCHAR(255),
+    official_url TEXT,
+    source_identifier VARCHAR(255),
+    retrieved_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS business_requirement_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_requirement_id UUID NOT NULL REFERENCES business_requirements(id) ON DELETE CASCADE,
+    source_id VARCHAR(100) REFERENCES sources(id) ON DELETE RESTRICT,
+    organization VARCHAR(255) NOT NULL,
+    source_url TEXT NOT NULL,
+    official BOOLEAN DEFAULT FALSE,
+    source_identifier VARCHAR(255),
+    retrieved_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_verified_at TIMESTAMPTZ,
+    UNIQUE(business_requirement_id, source_url)
+);
+
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE SET NULL;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS application_type VARCHAR(50) DEFAULT 'PERSONAL_ASSISTANCE';
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'applications_business_id_fkey'
+    ) THEN
+        ALTER TABLE applications
+            ADD CONSTRAINT applications_business_id_fkey
+            FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_user_id_opportunity_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_application_context
+    ON applications(user_id, opportunity_id, COALESCE(business_id, '00000000-0000-0000-0000-000000000000'::uuid), application_type);
+
+-- Extension table avoids duplicating application state while supporting business-specific metadata.
+CREATE TABLE IF NOT EXISTS business_applications (
+    application_id UUID PRIMARY KEY REFERENCES applications(id) ON DELETE CASCADE,
+    business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+    funding_need_id UUID REFERENCES business_funding_needs(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 14. Application Events (Audit Trail)
@@ -265,6 +451,12 @@ CREATE INDEX IF NOT EXISTS idx_opportunities_fingerprint ON opportunities(dedup_
 CREATE INDEX IF NOT EXISTS idx_opportunities_location_scope ON opportunities(location_scope);
 CREATE INDEX IF NOT EXISTS idx_opportunity_locations_state ON opportunity_locations(state);
 CREATE INDEX IF NOT EXISTS idx_opportunity_locations_zip ON opportunity_locations(zip_code);
+CREATE INDEX IF NOT EXISTS idx_opportunity_locations_hierarchy ON opportunity_locations(country_code, state, county, city, zip_code);
+CREATE INDEX IF NOT EXISTS idx_opportunity_audiences_audience ON opportunity_audiences(audience);
+CREATE INDEX IF NOT EXISTS idx_opportunity_funding_purposes_purpose ON opportunity_funding_purposes(funding_purpose);
+CREATE INDEX IF NOT EXISTS idx_business_profiles_user ON business_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_business_profiles_location ON business_profiles(country, state, county, city, postal_code);
+CREATE INDEX IF NOT EXISTS idx_business_requirements_location ON business_requirements(country_code, state, county, city);
 CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
 CREATE INDEX IF NOT EXISTS idx_sources_trust ON sources(trust_level, enabled);

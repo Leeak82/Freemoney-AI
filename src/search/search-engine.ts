@@ -10,6 +10,8 @@ import {
   UserProfile,
 } from '../types/index.js';
 import { eligibilityMatcher } from '../matching/eligibility-matcher.js';
+import { businessEligibilityMatcher } from '../business/business-matcher.js';
+import { geographicMatcher } from '../geography/geographic-matcher.js';
 
 export interface SearchResultEnvelope {
   total: number;
@@ -39,7 +41,33 @@ export class SearchEngine {
     let idx = 1;
 
     // 1. Categories
-    const categoriesToMatch = sq.categories || (sq.category ? [sq.category] : []);
+    const requestedCategories = sq.categories || (sq.category ? [sq.category] : []);
+    const businessCategoryAliases = new Set([
+      'business-grants',
+      'startup-funding',
+      'small-business-loans',
+      'microloans',
+      'business-assistance',
+      'veteran-owned-business',
+      'women-owned-business',
+      'rural-business',
+      'disability-owned-business',
+      'minority-owned-business',
+      'workforce-assistance',
+      'employee-training',
+      'equipment-assistance',
+      'technology-assistance',
+      'export-assistance',
+      'existing-business-assistance',
+    ]);
+    const categoriesToMatch = [
+      ...new Set([
+        ...requestedCategories,
+        ...(requestedCategories.some((category) => businessCategoryAliases.has(category))
+          ? ['small-business']
+          : []),
+      ]),
+    ];
     if (categoriesToMatch.length > 0 && !categoriesToMatch.includes('all')) {
       conditions.push(`o.category = ANY($${idx++})`);
       params.push(categoriesToMatch);
@@ -65,12 +93,56 @@ export class SearchEngine {
     }
 
     // 5. Geographic location filter
-    if (sq.state && sq.state.trim().length > 0) {
+    if (sq.zip && sq.zip.trim().length > 0) {
       conditions.push(
-        `(o.location_scope = 'NATIONWIDE' OR $${idx} = ANY(o.states) OR o.states = '{}')`
+        `(o.location_scope IN ('NATIONWIDE', 'ONLINE')
+          OR (o.location_scope = 'COUNTRY' AND COALESCE(o.country_code, '') = 'US')
+          OR (o.location_scope = 'ZIP' AND $${idx} = ANY(o.zip_codes)))`
       );
-      params.push(sq.state.toUpperCase());
+      params.push(sq.zip.trim().toUpperCase());
       idx++;
+    } else if (sq.city && sq.city.trim().length > 0) {
+      conditions.push(
+        `(o.location_scope IN ('NATIONWIDE', 'ONLINE')
+          OR (o.location_scope = 'COUNTRY' AND COALESCE(o.country_code, '') = 'US')
+          OR (o.location_scope = 'CITY'
+            AND EXISTS (SELECT 1 FROM unnest(o.cities) city WHERE UPPER(city) = $${idx})
+            ${sq.state ? `AND EXISTS (SELECT 1 FROM unnest(o.states) st WHERE UPPER(st) = $${idx + 1})` : ''}))`
+      );
+      params.push(sq.city.trim().toUpperCase());
+      idx++;
+      if (sq.state) {
+        params.push(sq.state.trim().toUpperCase());
+        idx++;
+      }
+    } else if (sq.county && sq.county.trim().length > 0) {
+      conditions.push(
+        `(o.location_scope IN ('NATIONWIDE', 'ONLINE')
+          OR (o.location_scope = 'COUNTRY' AND COALESCE(o.country_code, '') = 'US')
+          OR (o.location_scope = 'COUNTY'
+            AND EXISTS (
+              SELECT 1 FROM unnest(o.counties) county
+              WHERE REGEXP_REPLACE(UPPER(county), '\\s+COUNTY$', '') = $${idx}
+            )
+            ${sq.state ? `AND EXISTS (SELECT 1 FROM unnest(o.states) st WHERE UPPER(st) = $${idx + 1})` : ''}))`
+      );
+      params.push(sq.county.trim().toUpperCase().replace(/\s+COUNTY$/, ''));
+      idx++;
+      if (sq.state) {
+        params.push(sq.state.trim().toUpperCase());
+        idx++;
+      }
+    } else if (sq.state && sq.state.trim().length > 0) {
+      conditions.push(
+        `(o.location_scope IN ('NATIONWIDE', 'ONLINE')
+          OR (o.location_scope = 'COUNTRY' AND COALESCE(o.country_code, '') = 'US')
+          OR (o.location_scope = 'STATE'
+            AND EXISTS (SELECT 1 FROM unnest(o.states) st WHERE UPPER(st) = $${idx})) )`
+      );
+      params.push(sq.state.trim().toUpperCase());
+      idx++;
+    } else if (sq.location_scope === 'NATIONWIDE') {
+      conditions.push(`o.location_scope IN ('NATIONWIDE', 'ONLINE')`);
     }
 
     // 6. Program Type
@@ -95,6 +167,36 @@ export class SearchEngine {
       params.push(sq.deadline_before);
     }
 
+    if (sq.audiences && sq.audiences.length > 0) {
+      conditions.push(
+        `EXISTS (
+          SELECT 1 FROM opportunity_audiences oa
+          WHERE oa.opportunity_id = o.id AND oa.audience = ANY($${idx++})
+        )`
+      );
+      params.push(sq.audiences);
+    }
+
+    if (sq.funding_purposes && sq.funding_purposes.length > 0) {
+      conditions.push(
+        `EXISTS (
+          SELECT 1 FROM opportunity_funding_purposes ofp
+          WHERE ofp.opportunity_id = o.id AND ofp.funding_purpose = ANY($${idx++})
+        )`
+      );
+      params.push(sq.funding_purposes);
+    }
+
+    if (sq.intent === 'BUSINESS_ASSISTANCE' && requestedCategories.length === 0) {
+      conditions.push(
+        `(o.category = 'small-business' OR EXISTS (
+          SELECT 1 FROM opportunity_audiences oa
+          WHERE oa.opportunity_id = o.id
+            AND oa.audience IN ('ENTREPRENEUR', 'STARTUP', 'SMALL_BUSINESS', 'EXISTING_BUSINESS', 'NONPROFIT', 'EMPLOYER')
+        ))`
+      );
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Count query
@@ -115,7 +217,15 @@ export class SearchEngine {
         s.trust_level AS source_trust_level,
         s.organization AS source_organization,
         s.type AS source_type,
-        s.documentation_url AS source_documentation_url
+        s.documentation_url AS source_documentation_url,
+        COALESCE((
+          SELECT array_agg(oa.audience ORDER BY oa.audience)
+          FROM opportunity_audiences oa WHERE oa.opportunity_id = o.id
+        ), ARRAY[]::text[]) AS audiences,
+        COALESCE((
+          SELECT array_agg(ofp.funding_purpose ORDER BY ofp.funding_purpose)
+          FROM opportunity_funding_purposes ofp WHERE ofp.opportunity_id = o.id
+        ), ARRAY[]::text[]) AS funding_purposes
       FROM opportunities o
       JOIN sources s ON o.source_id = s.id
       ${whereClause}
@@ -151,6 +261,8 @@ export class SearchEngine {
         deadline: row.deadline ? new Date(row.deadline) : null,
         rolling_deadline: row.rolling_deadline,
         location_scope: row.location_scope,
+        country_code: row.country_code,
+        regions: row.regions || [],
         states: row.states || [],
         counties: row.counties || [],
         cities: row.cities || [],
@@ -166,6 +278,8 @@ export class SearchEngine {
         last_verified_at: new Date(row.last_verified_at),
         retrieved_at: new Date(row.retrieved_at),
         active: row.active,
+        audiences: row.audiences || [],
+        funding_purposes: row.funding_purposes || [],
         created_at: new Date(row.created_at),
         updated_at: new Date(row.updated_at),
       };
@@ -173,9 +287,32 @@ export class SearchEngine {
       const trustLevel: SourceTrustLevel = row.source_trust_level || 'COMMUNITY';
 
       // Match evaluation
-      const matchEvaluation = await eligibilityMatcher.evaluateEligibility(
-        opp,
-        sq.user_profile
+      const matchEvaluation =
+        sq.intent === 'BUSINESS_ASSISTANCE' || sq.business_profile
+          ? await businessEligibilityMatcher.evaluateBusinessEligibility(
+              opp,
+              sq.business_profile
+            )
+          : await eligibilityMatcher.evaluateEligibility(opp, sq.user_profile);
+      const geographicMatch = geographicMatcher.matchOpportunity(
+        sq.business_profile
+          ? {
+              country_code: sq.business_profile.country,
+              state: sq.business_profile.state,
+              county: sq.business_profile.county,
+              city: sq.business_profile.city,
+              postal_code: sq.business_profile.postal_code,
+            }
+          : sq.user_profile || sq.state || sq.county || sq.city || sq.zip
+            ? {
+                country_code: 'US',
+                state: sq.user_profile?.state || sq.state,
+                county: sq.county,
+                city: sq.city,
+                postal_code: sq.user_profile?.zip_code || sq.zip,
+              }
+            : undefined,
+        opp
       );
 
       // Extract requirement and document summaries
@@ -210,6 +347,12 @@ export class SearchEngine {
         documents,
         missing_information: matchEvaluation.missingInformation,
         potential_disqualifiers: matchEvaluation.potentialDisqualifiers,
+        geographic_match: {
+          level: geographicMatch.level,
+          matched: geographicMatch.matched,
+          score: geographicMatch.score,
+          explanation: geographicMatch.explanation,
+        },
         source_provenance: {
           source_name: row.source_name,
           source_url: opp.source_url,
@@ -251,7 +394,15 @@ export class SearchEngine {
         s.trust_level AS source_trust_level,
         s.organization AS source_organization,
         s.type AS source_type,
-        s.documentation_url AS source_documentation_url
+        s.documentation_url AS source_documentation_url,
+        COALESCE((
+          SELECT array_agg(oa.audience ORDER BY oa.audience)
+          FROM opportunity_audiences oa WHERE oa.opportunity_id = o.id
+        ), ARRAY[]::text[]) AS audiences,
+        COALESCE((
+          SELECT array_agg(ofp.funding_purpose ORDER BY ofp.funding_purpose)
+          FROM opportunity_funding_purposes ofp WHERE ofp.opportunity_id = o.id
+        ), ARRAY[]::text[]) AS funding_purposes
        FROM opportunities o
        JOIN sources s ON o.source_id = s.id
        WHERE o.id = $1;`,
@@ -278,6 +429,8 @@ export class SearchEngine {
       deadline: row.deadline ? new Date(row.deadline) : null,
       rolling_deadline: row.rolling_deadline,
       location_scope: row.location_scope,
+      country_code: row.country_code,
+      regions: row.regions || [],
       states: row.states || [],
       counties: row.counties || [],
       cities: row.cities || [],
@@ -293,6 +446,8 @@ export class SearchEngine {
       last_verified_at: new Date(row.last_verified_at),
       retrieved_at: new Date(row.retrieved_at),
       active: row.active,
+      audiences: row.audiences || [],
+      funding_purposes: row.funding_purposes || [],
       created_at: new Date(row.created_at),
       updated_at: new Date(row.updated_at),
     };
@@ -316,6 +471,12 @@ export class SearchEngine {
       documents: opp.required_documents.length > 0 ? opp.required_documents : ['Standard Application Package'],
       missing_information: matchEval.missingInformation,
       potential_disqualifiers: matchEval.potentialDisqualifiers,
+      geographic_match: {
+        level: 'UNKNOWN',
+        matched: false,
+        score: null,
+        explanation: 'Provide a location to evaluate geographic eligibility.',
+      },
       source_provenance: {
         source_name: row.source_name,
         source_url: opp.source_url,

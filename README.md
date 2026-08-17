@@ -1,6 +1,6 @@
 # FreeMoney-AI
 
-> **Legitimate assistance-discovery platform helping users find grants, financial assistance, benefits, scholarships, housing aid, utility assistance, emergency assistance, and official financial programs.**
+> **A source-backed platform for personal assistance and for starting or growing a business—covering grants, benefits, formation guidance, funding, licenses, permits, and official resources.**
 
 ---
 
@@ -16,6 +16,8 @@ $$\text{DISCOVER} \longrightarrow \text{FILTER} \longrightarrow \text{VERIFY} \l
 3. **No Giant Questionnaire Required:** Users can search and explore immediately. User profile is 100% optional.
 4. **Honest AI Matching & Preserved Uncertainty:** If criteria or user information is incomplete, the system marks the match as *Needs Verification* and never hallucinates positive qualifications.
 5. **No Unauthorized Auto-Submissions:** Applications generate document checklists and require explicit user consent and review before submission.
+6. **Geography Is Explicit:** Nationwide, country, state, county, city, region, ZIP, tribal, online, and unknown scopes are distinct. Unknown is never treated as nationwide.
+7. **Business Guidance Is Not Legal Advice:** State LLC facts are displayed only from verified providers. Unsupported jurisdictions remain marked *Needs verification*.
 
 ---
 
@@ -25,7 +27,9 @@ $$\text{DISCOVER} \longrightarrow \text{FILTER} \longrightarrow \text{VERIFY} \l
 - **Data Ingestion:** Extensible `IOpportunitySource` framework, Grants.gov REST client (`/search2`, `/fetchOpportunity`), Public APIs catalog discovery parser.
 - **Search & Ranking:** Multi-factor deterministic ranking weighted by category, geography, demographic fit, and source trust multipliers.
 - **AI Eligibility Engine:** `IEligibilityMatcher` interface with rule-based and configurable LLM adapters.
-- **Frontend:** Responsive, single-page application with immediate category chip filters, geographic search, program detail inspection, optional profile builder, application tracker, and admin telemetry.
+- **Business Engine:** Optional business profiles, stage-aware matching, unified opportunity audiences, funding purposes, startup/LLC checklists, and official requirement-provider abstractions.
+- **Geographic Engine:** `IGeographicMatcher` returns exact, city, county, state, region, country, nationwide, online, no-match, or unknown outcomes.
+- **Frontend:** Responsive dual-path experience for personal assistance or business startup/growth, plus program detail, profiles, checklists, application tracking, and admin telemetry.
 
 ---
 
@@ -59,6 +63,13 @@ npm run sync
 npm run dev
 ```
 Open **`http://localhost:3000`** in your browser.
+
+The homepage immediately offers:
+
+- **Find Personal Assistance**
+- **Start or Grow a Business**
+
+No account or questionnaire is required for basic exploration.
 
 ---
 

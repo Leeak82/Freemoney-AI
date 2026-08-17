@@ -9,6 +9,7 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
 ### 1. Categories
 - **`GET /api/categories`**
   - **Description:** Returns the hierarchical taxonomy of financial assistance categories.
+  - **Query:** `path=PERSONAL` or `path=BUSINESS` filters the dual-path taxonomy.
   - **Response:**
     ```json
     {
@@ -34,6 +35,7 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
       "keyword": "health",
       "state": "WA",
       "official_only": true,
+      "intent": "PERSONAL_ASSISTANCE",
       "user_profile": {
         "state": "WA",
         "is_veteran": true,
@@ -44,6 +46,10 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
       "offset": 0
     }
     ```
+
+- **`POST /api/business/search`**
+  - Uses the same opportunity engine with a saved business profile.
+  - Body: `{ "business_id": "<uuid>", "categories": ["startup-funding"], "limit": 20 }`.
   - **Response:**
     ```json
     {
@@ -96,7 +102,7 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
   - **Request Body:**
     ```json
     {
-      "user_id": "00000000-0000-0000-0000-000000000001",
+      "user_id": "00000000-0000-4000-8000-000000000001",
       "state": "WA",
       "zip_code": "98402",
       "household_size": 2,
@@ -115,11 +121,29 @@ Base URL: `http://localhost:3000/api` (or configured `API_BASE_URL`)
   - **Request Body:**
     ```json
     {
-      "user_id": "00000000-0000-0000-0000-000000000001",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "business_id": null,
       "opportunity_id": "uuid",
+      "application_type": "PERSONAL_ASSISTANCE",
       "notes": "Preparing documentation for grant cycle."
     }
     ```
+
+### 5. Business Startup and Formation
+
+- **`GET /api/businesses`** — lists optional business profiles for the user.
+- **`POST /api/businesses`** — creates or incrementally updates a business profile and generates configurable startup/LLC checklists.
+- **`GET /api/businesses/:id`** — returns the profile and checklists.
+- **`GET /api/businesses/:id/checklists`** — returns all business checklists.
+- **`PATCH /api/businesses/:businessId/checklists/items/:itemId`**
+  - Body: `{ "status": "COMPLETED" }`.
+  - Completion is recorded as user-confirmed; the system does not auto-complete requirements.
+- **`POST /api/business/formation-guidance`**
+  - Body: `{ "countryCode": "US", "state": "WA", "structure": "LLC" }`.
+  - Unsupported state/structure combinations return `supported: false` and `missingInformation`; they never borrow another state’s requirements.
+- **`POST /api/business/requirements`**
+  - Body accepts country, state, county, city, industry, and business type.
+  - Returns official source links and `NEEDS_VERIFICATION` where applicability is not established.
 
 - **`GET /api/applications`**
   - **Description:** Returns all application records tracked for the user.

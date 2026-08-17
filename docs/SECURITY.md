@@ -17,3 +17,11 @@
 ## 4. Input Sanitization & SQL Parameterization
 - All database queries use parameterized placeholders (`$1`, `$2`, ...) preventing SQL injection attacks.
 - Search keyword inputs are sanitized.
+
+## 5. Business Formation and Legal Trust
+- FreeMoney-AI is not a government agency, law firm, accountant, or filing service.
+- LLC and formation content is educational, not legal or tax advice.
+- A resource is labeled official only when its organization and government URL have been verified.
+- Unknown state/local requirements, fees, licenses, permits, or deadlines display `NEEDS_VERIFICATION`.
+- No CAPTCHA, authentication, portal security, or automation restriction may be bypassed.
+- Checklist completion requires user confirmation or a future trusted integration; it is never inferred from browsing.

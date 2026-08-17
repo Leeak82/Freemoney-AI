@@ -1,14 +1,15 @@
 import { query } from '../db/index.js';
 import { UserProfile } from '../types/index.js';
 
-import { v4 as uuidv4, validate as validateUuid } from 'uuid';
+import { validate as validateUuid } from 'uuid';
 
 export class ProfileService {
   /**
    * Get user profile by user_id
    */
   public async getProfile(userId: string): Promise<UserProfile | null> {
-    const validUserId = validateUuid(userId) ? userId : '00000000-0000-0000-0000-000000000000';
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
+    const validUserId = userId;
     const res = await query<UserProfile>(
       `SELECT * FROM profiles WHERE user_id = $1;`,
       [validUserId]
@@ -23,13 +24,14 @@ export class ProfileService {
     userId: string,
     data: Partial<UserProfile>
   ): Promise<UserProfile> {
-    const validUserId = validateUuid(userId) ? userId : uuidv4();
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
+    const validUserId = userId;
     // Ensure user row exists
     await query(
       `INSERT INTO users (id, email, full_name)
        VALUES ($1, $2, $3)
        ON CONFLICT (id) DO NOTHING;`,
-      [validUserId, `user-${validUserId.substring(0, 8)}@freemoney.local`, 'FreeMoney User']
+      [validUserId, `user-${validUserId}@freemoney.local`, 'FreeMoney User']
     );
 
     const res = await query<UserProfile>(

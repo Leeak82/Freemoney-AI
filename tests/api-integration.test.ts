@@ -61,7 +61,7 @@ describe('FreeMoney-AI Full REST API Suite', () => {
   });
 
   it('POST /api/profile saves optional profile and GET /api/profile retrieves it', async () => {
-    const testUserId = '00000000-0000-0000-0000-000000000001';
+    const testUserId = '00000000-0000-4000-8000-000000000011';
     const profilePayload = {
       user_id: testUserId,
       state: 'WA',
@@ -88,7 +88,7 @@ describe('FreeMoney-AI Full REST API Suite', () => {
     const searchRes = await request(app).post('/api/search').send({ limit: 1 });
     if (searchRes.body.results.length > 0) {
       const oppId = searchRes.body.results[0].opportunity.id;
-      const testUserId = '00000000-0000-0000-0000-000000000099';
+      const testUserId = '00000000-0000-4000-8000-000000000099';
 
       // Clean any pre-existing test app for idempotency
       await query(`DELETE FROM applications WHERE user_id = $1;`, [testUserId]);
@@ -119,6 +119,53 @@ describe('FreeMoney-AI Full REST API Suite', () => {
       expect(patchRes.status).toBe(200);
       expect(patchRes.body.application.status).toBe('READY_FOR_REVIEW');
     }
+  });
+
+  it('supports the business startup wizard, LLC checklist, and unified search', async () => {
+    const testUserId = '00000000-0000-4000-8000-000000000199';
+    await query(`DELETE FROM users WHERE id = $1;`, [testUserId]);
+
+    const businessRes = await request(app)
+      .post('/api/businesses')
+      .send({
+        user_id: testUserId,
+        business_description: 'A mobile equipment repair business',
+        industry: 'Equipment repair',
+        business_stage: 'IDEA',
+        country: 'US',
+        state: 'WA',
+        business_structure: 'LLC',
+        funding_needed: 25000,
+        funding_purpose: 'EQUIPMENT',
+        veteran_owned: true,
+      });
+
+    expect(businessRes.status).toBe(201);
+    expect(businessRes.body.business.business_stage).toBe('IDEA');
+    expect(businessRes.body.startupChecklist.items.length).toBeGreaterThan(5);
+    expect(businessRes.body.llcChecklist.items.length).toBeGreaterThan(5);
+    const businessId = businessRes.body.business.business_id;
+
+    const item = businessRes.body.startupChecklist.items[0];
+    const checklistRes = await request(app)
+      .patch(`/api/businesses/${businessId}/checklists/items/${item.id}`)
+      .send({ status: 'COMPLETED' });
+    expect(checklistRes.status).toBe(200);
+    expect(checklistRes.body.item.status).toBe('COMPLETED');
+    expect(checklistRes.body.item.completion_source).toBe('USER');
+
+    const formationRes = await request(app)
+      .post('/api/business/formation-guidance')
+      .send({ countryCode: 'US', state: 'WA', structure: 'LLC' });
+    expect(formationRes.status).toBe(200);
+    expect(formationRes.body.guidance.supported).toBe(false);
+    expect(formationRes.body.guidance.missingInformation.length).toBeGreaterThan(0);
+
+    const searchRes = await request(app)
+      .post('/api/business/search')
+      .send({ business_id: businessId, limit: 10 });
+    expect(searchRes.status).toBe(200);
+    expect(Array.isArray(searchRes.body.results)).toBe(true);
   });
 
   it('POST /api/sync/grants-gov requires admin authentication', async () => {

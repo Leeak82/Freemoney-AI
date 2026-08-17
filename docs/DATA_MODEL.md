@@ -122,3 +122,24 @@ Tracks the user application lifecycle safely without auto-submission.
 - `applications.checklist`: JSON array containing `{ document_name, required, collected }`.
 - `applications.user_approved_at`: Audit timestamp when user explicitly approved application package.
 - `application_events`: Immutable log of state transitions with timestamps and actor tracking.
+
+---
+
+## Business and Geographic Extensions
+
+The expansion remains relational and reuses `opportunities`, `sources`, and `applications`.
+
+| Table | Purpose |
+| :--- | :--- |
+| `businesses` | Stable user-to-business identity. |
+| `business_profiles` | Optional stage, industry, structure, geography, financial need, and self-reported ownership attributes. |
+| `business_certifications` | Certification claims and verification status without assuming qualification. |
+| `business_funding_needs` | Extensible normalized funding purposes and requested amounts. |
+| `business_checklists` / `business_checklist_items` | Configurable startup and LLC progress tracking; completion is user- or trusted-integration-confirmed. |
+| `business_requirements` | License, permit, formation, tax, employer, and other requirements with jurisdiction and verification status. |
+| `business_requirement_sources` | Official source provenance for every persisted requirement. |
+| `business_applications` | Business context attached to the unified `applications` workflow. |
+| `opportunity_audiences` | Many-to-many audiences such as `STARTUP`, `SMALL_BUSINESS`, `VETERAN`, or `STUDENT`. |
+| `opportunity_funding_purposes` | Normalized purposes such as `EQUIPMENT`, `WORKING_CAPITAL`, or `TRAINING`. |
+
+`applications` adds nullable `business_id` and an `application_type` while retaining one lifecycle and audit trail. Geographic coverage adds country, region, tribal, and online attributes; `UNKNOWN` remains a first-class scope and cannot be interpreted as nationwide.

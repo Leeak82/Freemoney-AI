@@ -5,13 +5,19 @@ const API_BASE = '/api';
 const state = {
   categories: [],
   selectedCategories: [],
+  intent: null,
   searchParams: {
     keyword: '',
     state: '',
+    county: '',
+    city: '',
     zip: '',
+    nationwide: false,
     officialOnly: false,
   },
   userProfile: null,
+  businessProfile: null,
+  businesses: [],
   currentView: 'home',
   opportunities: [],
   loading: false,
@@ -22,6 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupNavigation();
   await loadCategories();
   await loadProfile();
+  await loadBusinesses();
   handleRoute();
 });
 
@@ -53,6 +60,8 @@ function handleRoute() {
     renderOpportunityDetailView(oppId);
   } else if (path === '/profile') {
     renderProfileView();
+  } else if (path === '/business') {
+    renderBusinessView();
   } else if (path === '/applications') {
     renderApplicationsView();
   } else if (path === '/admin') {
@@ -82,23 +91,58 @@ async function loadProfile() {
   }
 }
 
+async function loadBusinesses() {
+  try {
+    const res = await fetch(`${API_BASE}/businesses`);
+    const data = await res.json();
+    state.businesses = data.businesses || [];
+    state.businessProfile = state.businesses[0] || null;
+  } catch (err) {
+    console.error('Failed to load businesses:', err);
+  }
+}
+
 // ----------------------------------------------------------------
 // VIEW: Home (Landing + Instant Assistance Search)
 // ----------------------------------------------------------------
 function renderHomeView() {
   const root = document.getElementById('app-root');
+  const visibleCategories = state.intent
+    ? state.categories.filter(
+        (category) =>
+          category.audience_type === (state.intent === 'BUSINESS_ASSISTANCE' ? 'BUSINESS' : 'PERSONAL') ||
+          category.audience_type === 'BOTH'
+      )
+    : [];
   root.innerHTML = `
     <section class="hero-section">
       <h1 class="hero-title">FreeMoney-AI</h1>
       <p class="hero-subtitle">
-        Find legitimate grants, financial assistance, emergency benefits, housing aid, and scholarships you may qualify for — with 100% official source verification.
+        Find source-backed personal assistance or verified resources to start and grow a business.
       </p>
     </section>
 
+    <section class="path-section">
+      <div class="input-label" style="text-align:center; margin-bottom:14px;">What do you need help with?</div>
+      <div class="path-grid">
+        <button class="path-card ${state.intent === 'PERSONAL_ASSISTANCE' ? 'selected' : ''}" data-intent="PERSONAL_ASSISTANCE">
+          <span class="path-icon">◉</span>
+          <strong>Find Personal Assistance</strong>
+          <span>Housing, food, utilities, education, benefits, and emergency help</span>
+        </button>
+        <button class="path-card ${state.intent === 'BUSINESS_ASSISTANCE' ? 'selected' : ''}" data-intent="BUSINESS_ASSISTANCE">
+          <span class="path-icon">◆</span>
+          <strong>Start or Grow a Business</strong>
+          <span>Formation, LLC guidance, funding, licenses, permits, and growth resources</span>
+        </button>
+      </div>
+    </section>
+
+    ${state.intent ? `
     <div class="search-card">
-      <div class="input-label" style="margin-bottom: 12px;">Step 1: Select Assistance Categories</div>
+      <div class="input-label" style="margin-bottom: 12px;">1. Select one or more categories</div>
       <div class="category-chips-grid" id="category-chips">
-        ${state.categories
+        ${visibleCategories
           .map(
             (cat) => `
           <div class="category-chip ${state.selectedCategories.includes(cat.slug) ? 'selected' : ''}" data-slug="${cat.slug}">
@@ -109,21 +153,39 @@ function renderHomeView() {
           .join('')}
       </div>
 
-      <div class="input-label" style="margin-bottom: 12px;">Step 2: Location & Keywords</div>
+      <div class="input-label" style="margin-bottom: 12px;">2. Where and what?</div>
       <div class="search-input-row">
         <div class="input-group" style="flex: 2;">
-          <input type="text" id="input-keyword" class="form-control" placeholder="Search by topic, agency, or program (e.g. Health, Housing, Energy)..." value="${state.searchParams.keyword}">
+          <input type="text" id="input-keyword" class="form-control" placeholder="${state.intent === 'BUSINESS_ASSISTANCE' ? 'Equipment, startup, training, contracts…' : 'Housing, food, health, education…'}" value="${state.searchParams.keyword}">
         </div>
         <div class="input-group" style="flex: 1; min-width: 140px;">
-          <input type="text" id="input-state" class="form-control" placeholder="State (e.g. WA, CA, TX, or Nationwide)" value="${state.searchParams.state}">
+          <input type="text" id="input-state" class="form-control" placeholder="State" value="${state.searchParams.state}">
         </div>
-        <div class="input-group" style="flex: 0 0 auto;">
+        <div class="input-group" style="flex: 1; min-width: 140px;">
+          <input type="text" id="input-county" class="form-control" placeholder="County (optional)" value="${state.searchParams.county}">
+        </div>
+        <div class="input-group" style="flex: 1; min-width: 140px;">
+          <input type="text" id="input-city" class="form-control" placeholder="City (optional)" value="${state.searchParams.city}">
+        </div>
+        <div class="input-group" style="flex: 1; min-width: 120px;">
+          <input type="text" id="input-zip" class="form-control" placeholder="ZIP" value="${state.searchParams.zip}">
+        </div>
+      </div>
+      <div class="search-input-row" style="margin-top:14px; align-items:center;">
+        <label class="location-toggle">
+          <input type="checkbox" id="input-nationwide" ${state.searchParams.nationwide ? 'checked' : ''}>
+          Nationwide / online programs
+        </label>
+        <div class="input-group" style="flex: 0 0 auto; margin-left:auto;">
           <button id="btn-find" class="btn btn-primary" style="height: 100%;">
             Find Assistance
           </button>
         </div>
       </div>
     </div>
+    ` : `
+      <div class="empty-prompt">Choose a path to begin. Registration is not required.</div>
+    `}
 
     <div id="results-container">
       <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">
@@ -131,6 +193,16 @@ function renderHomeView() {
       </div>
     </div>
   `;
+
+  document.querySelectorAll('.path-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      state.intent = card.getAttribute('data-intent');
+      state.selectedCategories = [];
+      renderHomeView();
+    });
+  });
+
+  if (!state.intent) return;
 
   // Attach Category Selection
   document.querySelectorAll('.category-chip').forEach((chip) => {
@@ -150,6 +222,10 @@ function renderHomeView() {
   document.getElementById('btn-find').addEventListener('click', () => {
     state.searchParams.keyword = document.getElementById('input-keyword').value;
     state.searchParams.state = document.getElementById('input-state').value;
+    state.searchParams.county = document.getElementById('input-county').value;
+    state.searchParams.city = document.getElementById('input-city').value;
+    state.searchParams.zip = document.getElementById('input-zip').value;
+    state.searchParams.nationwide = document.getElementById('input-nationwide').checked;
     executeSearch();
   });
 }
@@ -172,7 +248,13 @@ async function executeSearch() {
       categories: state.selectedCategories.length > 0 ? state.selectedCategories : undefined,
       keyword: state.searchParams.keyword || undefined,
       state: state.searchParams.state || undefined,
-      user_profile: state.userProfile || undefined,
+      county: state.searchParams.county || undefined,
+      city: state.searchParams.city || undefined,
+      zip: state.searchParams.zip || undefined,
+      location_scope: state.searchParams.nationwide ? 'NATIONWIDE' : undefined,
+      intent: state.intent || 'PERSONAL_ASSISTANCE',
+      user_profile: state.intent === 'PERSONAL_ASSISTANCE' ? state.userProfile || undefined : undefined,
+      business_profile: state.intent === 'BUSINESS_ASSISTANCE' ? state.businessProfile || undefined : undefined,
     };
 
     const res = await fetch(`${API_BASE}/search`, {
@@ -531,6 +613,254 @@ async function renderProfileView() {
 }
 
 // ----------------------------------------------------------------
+// VIEW: Business Startup Wizard & LLC Assistant (/business)
+// ----------------------------------------------------------------
+async function renderBusinessView() {
+  await loadBusinesses();
+  const business = state.businessProfile || {};
+  const root = document.getElementById('app-root');
+  root.innerHTML = `
+    <section class="business-hero">
+      <div>
+        <div class="eyebrow">Start or grow a business</div>
+        <h1>Business launch workspace</h1>
+        <p>Answer only what you know. FreeMoney-AI uses these optional facts to find source-backed resources and never assumes ownership certifications.</p>
+      </div>
+      <span class="trust-note">Educational guidance — not legal or tax advice</span>
+    </section>
+
+    <div class="detail-grid">
+      <section class="search-card">
+        <form id="business-form">
+          <input type="hidden" id="biz-id" value="${business.business_id || ''}">
+          <div class="wizard-step">Step 1 · The idea and stage</div>
+          <label class="input-label">What is your business idea?</label>
+          <textarea id="biz-description" class="form-control" rows="3" placeholder="Describe the product, service, and customer">${business.business_description || ''}</textarea>
+
+          <div class="form-grid">
+            <div>
+              <label class="input-label">Industry</label>
+              <input id="biz-industry" class="form-control" value="${business.industry || ''}" placeholder="e.g. construction, retail, software">
+            </div>
+            <div>
+              <label class="input-label">Business stage</label>
+              <select id="biz-stage" class="form-control">
+                ${['IDEA','PLANNING','FORMATION','PRE_REVENUE','OPERATING','GROWING','EXPANDING','DISTRESSED'].map(stage => `<option value="${stage}" ${business.business_stage === stage ? 'selected' : ''}>${stage.replace(/_/g, ' ')}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="wizard-step">Step 2 · Where will it operate?</div>
+          <div class="form-grid">
+            <div><label class="input-label">State</label><input id="biz-state" class="form-control" value="${business.state || ''}" placeholder="Two-letter state"></div>
+            <div><label class="input-label">County</label><input id="biz-county" class="form-control" value="${business.county || ''}" placeholder="Optional"></div>
+            <div><label class="input-label">City</label><input id="biz-city" class="form-control" value="${business.city || ''}" placeholder="Optional"></div>
+            <div><label class="input-label">ZIP</label><input id="biz-zip" class="form-control" value="${business.postal_code || ''}" placeholder="Optional"></div>
+          </div>
+
+          <div class="wizard-step">Step 3 · Structure and funding</div>
+          <div class="form-grid">
+            <div>
+              <label class="input-label">Preferred structure</label>
+              <select id="biz-structure" class="form-control">
+                ${['UNKNOWN','SOLE_PROPRIETORSHIP','LLC','PARTNERSHIP','S_CORPORATION','C_CORPORATION','NONPROFIT','OTHER'].map(structure => `<option value="${structure}" ${business.business_structure === structure ? 'selected' : ''}>${structure.replace(/_/g, ' ')}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="input-label">Funding purpose</label>
+              <select id="biz-purpose" class="form-control">
+                <option value="">Not selected</option>
+                ${['STARTUP_COSTS','EQUIPMENT','INVENTORY','WORKING_CAPITAL','RENT','UTILITIES','PAYROLL','MARKETING','TECHNOLOGY','TRAINING','REAL_ESTATE','VEHICLE','EXPANSION','DISASTER_RECOVERY','EXPORT','OTHER'].map(purpose => `<option value="${purpose}" ${business.funding_purpose === purpose ? 'selected' : ''}>${purpose.replace(/_/g, ' ')}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="input-label">Funding needed</label>
+              <input id="biz-funding" type="number" min="0" class="form-control" value="${business.funding_needed || ''}" placeholder="Optional amount">
+            </div>
+            <div>
+              <label class="input-label">Expected employees</label>
+              <input id="biz-employees" type="number" min="0" class="form-control" value="${business.employee_count ?? ''}" placeholder="Optional">
+            </div>
+          </div>
+
+          <details class="optional-panel">
+            <summary>Optional ownership characteristics</summary>
+            <p>Choose only characteristics the business actually meets. These are never assumed.</p>
+            <div class="ownership-grid">
+              ${[
+                ['veteran','Veteran-owned', business.veteran_owned],
+                ['women','Women-owned', business.women_owned],
+                ['disability','Disability-owned', business.disability_owned],
+                ['minority','Minority-owned', business.minority_owned],
+                ['rural','Rural business', business.rural_business],
+              ].map(([id,label,checked]) => `<label><input type="checkbox" id="biz-${id}" ${checked ? 'checked' : ''}> ${label}</label>`).join('')}
+            </div>
+          </details>
+
+          <button type="submit" class="btn btn-primary" style="width:100%;">Save and build my checklist</button>
+        </form>
+      </section>
+
+      <aside>
+        <div class="provenance-card">
+          <h3>Verified guidance policy</h3>
+          <p>State formation, license, permit, fee, and compliance facts appear only when backed by an official source. Unknown facts display <strong>Needs verification</strong>.</p>
+          <button id="btn-business-requirements" class="btn btn-secondary" style="width:100%; margin-top:14px;">Research official requirements</button>
+          <button id="btn-business-search" class="btn btn-primary" style="width:100%; margin-top:10px;" ${business.business_id ? '' : 'disabled'}>Find business assistance</button>
+        </div>
+        <div id="business-guidance" style="margin-top:18px;"></div>
+      </aside>
+    </div>
+
+    <section id="business-checklists" style="margin-top:28px;">
+      ${business.business_id ? '<div class="empty-prompt">Loading checklists…</div>' : ''}
+    </section>
+  `;
+
+  if (business.business_id) {
+    await renderBusinessChecklists(business.business_id);
+    if (business.business_structure === 'LLC') {
+      await loadFormationGuidance(business);
+    }
+  }
+
+  document.getElementById('business-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const numberOrNull = (id) => {
+      const value = document.getElementById(id).value;
+      return value === '' ? null : Number(value);
+    };
+    const payload = {
+      business_id: document.getElementById('biz-id').value || undefined,
+      business_description: document.getElementById('biz-description').value || null,
+      industry: document.getElementById('biz-industry').value || null,
+      business_stage: document.getElementById('biz-stage').value,
+      country: 'US',
+      state: document.getElementById('biz-state').value || null,
+      county: document.getElementById('biz-county').value || null,
+      city: document.getElementById('biz-city').value || null,
+      postal_code: document.getElementById('biz-zip').value || null,
+      business_structure: document.getElementById('biz-structure').value,
+      funding_purpose: document.getElementById('biz-purpose').value || null,
+      funding_needed: numberOrNull('biz-funding'),
+      employee_count: numberOrNull('biz-employees'),
+      veteran_owned: document.getElementById('biz-veteran').checked,
+      women_owned: document.getElementById('biz-women').checked,
+      disability_owned: document.getElementById('biz-disability').checked,
+      minority_owned: document.getElementById('biz-minority').checked,
+      rural_business: document.getElementById('biz-rural').checked,
+    };
+    const res = await fetch(`${API_BASE}/businesses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Unable to save business profile.');
+      return;
+    }
+    state.businessProfile = data.business;
+    await renderBusinessView();
+  });
+
+  document.getElementById('btn-business-requirements').addEventListener('click', async () => {
+    const input = {
+      countryCode: 'US',
+      state: document.getElementById('biz-state').value || undefined,
+      county: document.getElementById('biz-county').value || undefined,
+      city: document.getElementById('biz-city').value || undefined,
+      industry: document.getElementById('biz-industry').value || undefined,
+    };
+    const res = await fetch(`${API_BASE}/business/requirements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const data = await res.json();
+    document.getElementById('business-guidance').innerHTML = `
+      <div class="provenance-card">
+        <h3>Official starting points</h3>
+        ${(data.requirements || []).map(item => `
+          <div class="resource-item">
+            <span class="verification-badge">${item.status.replace(/_/g, ' ')}</span>
+            <strong>${item.title}</strong>
+            <p>${item.description}</p>
+            <a href="${item.officialUrl}" target="_blank" rel="noopener">Official ${item.agency} source ↗</a>
+          </div>
+        `).join('')}
+      </div>`;
+  });
+
+  document.getElementById('btn-business-search').addEventListener('click', async () => {
+    if (!state.businessProfile?.business_id) return;
+    state.intent = 'BUSINESS_ASSISTANCE';
+    state.selectedCategories = [];
+    window.history.pushState({}, '', '/');
+    renderHomeView();
+  });
+}
+
+async function loadFormationGuidance(business) {
+  const res = await fetch(`${API_BASE}/business/formation-guidance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      countryCode: business.country || 'US',
+      state: business.state || undefined,
+      structure: business.business_structure,
+    }),
+  });
+  const data = await res.json();
+  const guidance = data.guidance;
+  if (!guidance) return;
+  document.getElementById('business-guidance').innerHTML = `
+    <div class="provenance-card">
+      <h3>LLC Assistant</h3>
+      <p class="verification-warning">${guidance.supported ? 'Verified provider available' : 'State-specific information not verified'}</p>
+      ${(guidance.requirements || []).map(item => `
+        <div class="resource-item">
+          <strong>${item.title}</strong>
+          <p>${item.description}</p>
+          <a href="${item.officialUrl}" target="_blank" rel="noopener">${item.organization} ↗</a>
+        </div>
+      `).join('')}
+      ${(guidance.missingInformation || []).map(item => `<div class="missing-item">Needs verification: ${item}</div>`).join('')}
+      <small>${guidance.disclaimer}</small>
+    </div>`;
+}
+
+async function renderBusinessChecklists(businessId) {
+  const res = await fetch(`${API_BASE}/businesses/${businessId}/checklists`);
+  const data = await res.json();
+  const container = document.getElementById('business-checklists');
+  container.innerHTML = (data.checklists || []).map(checklist => `
+    <div class="search-card">
+      <div class="card-top"><h2>${checklist.title}</h2><span class="badge-trust badge-partner">${checklist.checklist_type.replace(/_/g, ' ')}</span></div>
+      <div class="checklist-grid">
+        ${checklist.items.map(item => `
+          <button class="business-check-item ${item.status === 'COMPLETED' ? 'completed' : ''}" data-item-id="${item.id}" data-status="${item.status}">
+            <span>${item.status === 'COMPLETED' ? '✓' : '○'}</span>
+            <span><strong>${item.title}</strong><small>${item.description}</small></span>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+  container.querySelectorAll('.business-check-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const nextStatus = item.getAttribute('data-status') === 'COMPLETED' ? 'NOT_STARTED' : 'COMPLETED';
+      await fetch(`${API_BASE}/businesses/${businessId}/checklists/items/${item.getAttribute('data-item-id')}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      await renderBusinessChecklists(businessId);
+    });
+  });
+}
+
+// ----------------------------------------------------------------
 // VIEW: Applications Tracker (/applications)
 // ----------------------------------------------------------------
 async function renderApplicationsView() {
@@ -630,7 +960,17 @@ async function startApplication(oppId) {
     const res = await fetch(`${API_BASE}/applications`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ opportunity_id: oppId }),
+      body: JSON.stringify({
+        opportunity_id: oppId,
+        business_id:
+          state.intent === 'BUSINESS_ASSISTANCE'
+            ? state.businessProfile?.business_id
+            : undefined,
+        application_type:
+          state.intent === 'BUSINESS_ASSISTANCE'
+            ? 'BUSINESS_ASSISTANCE'
+            : 'PERSONAL_ASSISTANCE',
+      }),
     });
     if (res.ok) {
       alert('Application preparation started! Document checklist generated.');

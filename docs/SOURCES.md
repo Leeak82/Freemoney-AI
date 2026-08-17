@@ -16,11 +16,20 @@
 
 Candidate data sources progress through a three-stage lifecycle:
 
-$$\text{DISCOVERED} \longrightarrow \text{VERIFIED} \longrightarrow \text{ACTIVE}$$
+$$\text{DISCOVERED} \longrightarrow \text{REVIEW} \longrightarrow \text{VERIFIED} \longrightarrow \text{ACTIVE}$$
 
 1. **DISCOVERED:** Extracted via automated catalog discovery from public API repositories. Not exposed in user search results.
 2. **VERIFIED:** Inspected by engineers/admins for authentication type, rate limits, schema stability, and non-prohibitive Terms of Service.
 3. **ACTIVE:** Plugged into `IOpportunitySource`, mapped into the normalization layer, and scheduled for continuous synchronization.
+
+## Verified Business Guidance Resources
+
+Business requirement providers currently expose official federal starting points from:
+
+- U.S. Small Business Administration (`sba.gov`) for structure, license, and permit research.
+- Internal Revenue Service (`irs.gov`) for EIN and employer tax guidance.
+
+These are guidance resources, not direct opportunity feeds. State filing agencies, state fees, registered-agent rules, and annual-report obligations are deliberately returned as `NEEDS_VERIFICATION` until a jurisdiction-specific provider is implemented and verified. FreeMoney-AI does not substitute one state’s process for another.
 
 ---
 

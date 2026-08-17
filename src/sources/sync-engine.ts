@@ -150,6 +150,24 @@ export class SyncEngine {
 
           if (upsertRes.rows.length > 0) {
             const row = upsertRes.rows[0];
+            for (const audience of normalized.audiences || []) {
+              await query(
+                `INSERT INTO opportunity_audiences (
+                   opportunity_id, audience, source_verified
+                 ) VALUES ($1, $2, FALSE)
+                 ON CONFLICT (opportunity_id, audience) DO NOTHING;`,
+                [row.id, audience]
+              );
+            }
+            for (const purpose of normalized.funding_purposes || []) {
+              await query(
+                `INSERT INTO opportunity_funding_purposes (
+                   opportunity_id, funding_purpose, source_verified
+                 ) VALUES ($1, $2, FALSE)
+                 ON CONFLICT (opportunity_id, funding_purpose) DO NOTHING;`,
+                [row.id, purpose]
+              );
+            }
             const isInsert = (row as any).is_insert;
             if (isInsert) {
               insertedCount++;

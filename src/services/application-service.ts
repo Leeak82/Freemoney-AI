@@ -1,12 +1,18 @@
 import { query } from '../db/index.js';
-import { ApplicationRecord, ApplicationStatus, Opportunity } from '../types/index.js';
+import {
+  ApplicationRecord,
+  ApplicationStatus,
+  ApplicationType,
+} from '../types/index.js';
 import { searchEngine } from '../search/search-engine.js';
 
-import { v4 as uuidv4, validate as validateUuid } from 'uuid';
+import { validate as validateUuid } from 'uuid';
 
 export interface CreateApplicationDTO {
   userId: string;
   opportunityId: string;
+  businessId?: string | null;
+  applicationType?: ApplicationType;
   notes?: string;
 }
 
@@ -28,7 +34,8 @@ export class ApplicationService {
    * Create or track a new application for a user
    */
   public async createApplication(dto: CreateApplicationDTO): Promise<ApplicationRecord> {
-    const validUserId = validateUuid(dto.userId) ? dto.userId : uuidv4();
+    if (!validateUuid(dto.userId)) throw new Error('A valid user UUID is required');
+    const validUserId = dto.userId;
     // 1. Fetch opportunity to generate dynamic document checklist
     const oppResult = await searchEngine.getOpportunityById(dto.opportunityId);
     if (!oppResult) {
@@ -42,36 +49,82 @@ export class ApplicationService {
       `INSERT INTO users (id, email, full_name)
        VALUES ($1, $2, $3)
        ON CONFLICT (id) DO NOTHING;`,
-      [validUserId, `user-${validUserId.substring(0, 8)}@freemoney.local`, 'FreeMoney User']
+      [validUserId, `user-${validUserId}@freemoney.local`, 'FreeMoney User']
     );
 
     // Initial Checklist derived strictly from opportunity requirements
-    const checklist = (opp.required_documents || ['Standard Application Form']).map((doc) => ({
+    const checklist = (
+      opp.required_documents.length > 0
+        ? opp.required_documents
+        : ['Standard Application Form']
+    ).map((doc) => ({
       document_name: doc,
       required: true,
       collected: false,
     }));
 
-    const res = await query<ApplicationRecord>(
+    const applicationType =
+      dto.applicationType || (dto.businessId ? 'BUSINESS_ASSISTANCE' : 'PERSONAL_ASSISTANCE');
+    let res = await query<ApplicationRecord>(
       `INSERT INTO applications (
-         user_id, opportunity_id, status, notes, checklist, created_at, updated_at
+         user_id, opportunity_id, business_id, application_type, status, notes,
+         checklist, created_at, updated_at
        )
-       VALUES ($1, $2, 'DISCOVERED', $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT (user_id, opportunity_id) DO UPDATE
-       SET notes = COALESCE(EXCLUDED.notes, applications.notes),
-           updated_at = CURRENT_TIMESTAMP
+       VALUES ($1, $2, $3, $4, 'DISCOVERED', $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT DO NOTHING
        RETURNING *;`,
-      [validUserId, dto.opportunityId, dto.notes || null, JSON.stringify(checklist)]
+      [
+        validUserId,
+        dto.opportunityId,
+        dto.businessId || null,
+        applicationType,
+        dto.notes || null,
+        JSON.stringify(checklist),
+      ]
     );
+
+    if (res.rows.length === 0) {
+      res = await query<ApplicationRecord>(
+        `UPDATE applications SET
+           notes = COALESCE($5, notes),
+           updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $1 AND opportunity_id = $2
+           AND COALESCE(business_id, '00000000-0000-0000-0000-000000000000'::uuid)
+             = COALESCE($3::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+           AND application_type = $4
+         RETURNING *;`,
+        [
+          validUserId,
+          dto.opportunityId,
+          dto.businessId || null,
+          applicationType,
+          dto.notes || null,
+        ]
+      );
+    }
 
     const app = res.rows[0];
 
     // Record initial event
-    await query(
-      `INSERT INTO application_events (application_id, previous_status, new_status, actor_id, note)
-       VALUES ($1, NULL, 'DISCOVERED', $2, 'Application discovered and initialized in tracker');`,
-      [app.id, validUserId]
-    );
+    if (app.status === 'DISCOVERED') {
+      await query(
+        `INSERT INTO application_events (application_id, previous_status, new_status, actor_id, note)
+         SELECT $1, NULL, 'DISCOVERED', $2, 'Application discovered and initialized in tracker'
+         WHERE NOT EXISTS (
+           SELECT 1 FROM application_events
+           WHERE application_id = $1 AND new_status = 'DISCOVERED'
+         );`,
+        [app.id, validUserId]
+      );
+    }
+    if (dto.businessId) {
+      await query(
+        `INSERT INTO business_applications (application_id, business_id)
+         VALUES ($1, $2)
+         ON CONFLICT (application_id) DO NOTHING;`,
+        [app.id, dto.businessId]
+      );
+    }
 
     return app;
   }
@@ -80,7 +133,8 @@ export class ApplicationService {
    * Get user's application list with joined opportunity details
    */
   public async getUserApplications(userId: string): Promise<any[]> {
-    const validUserId = validateUuid(userId) ? userId : '00000000-0000-0000-0000-000000000000';
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
+    const validUserId = userId;
     const res = await query(
       `SELECT 
          a.*,
@@ -143,6 +197,14 @@ export class ApplicationService {
       throw new Error(`Application ${id} not found`);
     }
     const current = existingRes.rows[0];
+    if (dto.status === 'SUBMITTED') {
+      throw new Error(
+        'Automatic submission is disabled in Phase 1. Record submission only after a user completes it through the official portal.'
+      );
+    }
+    if (dto.status === 'APPROVED' && !dto.userApproved && !current.user_approved_at) {
+      throw new Error('Explicit user approval is required before APPROVED status');
+    }
 
     const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
     const params: any[] = [id];

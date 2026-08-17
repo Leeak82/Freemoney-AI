@@ -9,11 +9,101 @@ export type SourceTrustLevel =
   | 'COMMUNITY'
   | 'UNKNOWN';
 
-export type DiscoveryStatus = 'DISCOVERED' | 'VERIFIED' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
+export type DiscoveryStatus =
+  | 'DISCOVERED'
+  | 'REVIEW'
+  | 'VERIFIED'
+  | 'ACTIVE'
+  | 'REJECTED'
+  | 'DISABLED';
 
 export type ProgramType = 'GRANT' | 'BENEFIT' | 'SCHOLARSHIP' | 'ASSISTANCE' | 'TAX_CREDIT' | 'LOAN' | 'EMERGENCY' | 'OTHER';
 
-export type LocationScope = 'NATIONWIDE' | 'STATE' | 'COUNTY' | 'CITY' | 'ZIP';
+export type LocationScope =
+  | 'NATIONWIDE'
+  | 'COUNTRY'
+  | 'STATE'
+  | 'COUNTY'
+  | 'CITY'
+  | 'REGION'
+  | 'ZIP'
+  | 'TRIBAL'
+  | 'ONLINE'
+  | 'OTHER'
+  | 'UNKNOWN';
+
+export type GeographicMatchLevel =
+  | 'EXACT'
+  | 'CITY'
+  | 'COUNTY'
+  | 'STATE'
+  | 'REGION'
+  | 'COUNTRY'
+  | 'NATIONWIDE'
+  | 'ONLINE'
+  | 'NO_MATCH'
+  | 'UNKNOWN';
+
+export type OpportunityAudience =
+  | 'INDIVIDUAL'
+  | 'FAMILY'
+  | 'STUDENT'
+  | 'VETERAN'
+  | 'DISABLED'
+  | 'ENTREPRENEUR'
+  | 'STARTUP'
+  | 'SMALL_BUSINESS'
+  | 'EXISTING_BUSINESS'
+  | 'NONPROFIT'
+  | 'EMPLOYER'
+  | 'OTHER';
+
+export type BusinessStage =
+  | 'IDEA'
+  | 'PLANNING'
+  | 'FORMATION'
+  | 'PRE_REVENUE'
+  | 'OPERATING'
+  | 'GROWING'
+  | 'EXPANDING'
+  | 'DISTRESSED';
+
+export type BusinessStructure =
+  | 'SOLE_PROPRIETORSHIP'
+  | 'LLC'
+  | 'PARTNERSHIP'
+  | 'S_CORPORATION'
+  | 'C_CORPORATION'
+  | 'NONPROFIT'
+  | 'OTHER'
+  | 'UNKNOWN';
+
+export type FundingPurpose =
+  | 'STARTUP_COSTS'
+  | 'EQUIPMENT'
+  | 'INVENTORY'
+  | 'WORKING_CAPITAL'
+  | 'RENT'
+  | 'UTILITIES'
+  | 'PAYROLL'
+  | 'MARKETING'
+  | 'TECHNOLOGY'
+  | 'TRAINING'
+  | 'REAL_ESTATE'
+  | 'VEHICLE'
+  | 'EXPANSION'
+  | 'DISASTER_RECOVERY'
+  | 'EXPORT'
+  | 'OTHER';
+
+export type ApplicationType =
+  | 'PERSONAL_ASSISTANCE'
+  | 'BUSINESS_ASSISTANCE'
+  | 'LLC_FORMATION'
+  | 'LICENSE'
+  | 'PERMIT'
+  | 'FUNDING'
+  | 'OTHER';
 
 export type ApplicationStatus = 
   | 'DISCOVERED'
@@ -85,6 +175,8 @@ export interface Opportunity {
   deadline: Date | null;
   rolling_deadline: boolean;
   location_scope: LocationScope;
+  country_code?: string | null;
+  regions?: string[];
   states: string[];
   counties: string[];
   cities: string[];
@@ -100,6 +192,8 @@ export interface Opportunity {
   last_verified_at: Date;
   retrieved_at: Date;
   active: boolean;
+  audiences?: OpportunityAudience[];
+  funding_purposes?: FundingPurpose[];
   created_at: Date;
   updated_at: Date;
 }
@@ -124,10 +218,52 @@ export interface UserProfile {
   updated_at?: Date;
 }
 
+export interface GeographicLocation {
+  country_code?: string | null;
+  state?: string | null;
+  county?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  region?: string | null;
+  tribal_area?: string | null;
+}
+
+export interface BusinessProfile {
+  id?: string;
+  business_id?: string;
+  user_id: string;
+  business_name?: string | null;
+  business_description?: string | null;
+  industry?: string | null;
+  business_stage?: BusinessStage | null;
+  country?: string | null;
+  state?: string | null;
+  county?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  business_structure?: BusinessStructure | null;
+  formation_status?: string | null;
+  employee_count?: number | null;
+  annual_revenue?: number | null;
+  estimated_startup_cost?: number | null;
+  funding_needed?: number | null;
+  funding_purpose?: FundingPurpose | null;
+  veteran_owned?: boolean | null;
+  women_owned?: boolean | null;
+  disability_owned?: boolean | null;
+  minority_owned?: boolean | null;
+  rural_business?: boolean | null;
+  other_certifications?: string[];
+  created_at?: Date;
+  updated_at?: Date;
+}
+
 export interface ApplicationRecord {
   id: string;
   user_id: string;
   opportunity_id: string;
+  business_id?: string | null;
+  application_type?: ApplicationType;
   status: ApplicationStatus;
   notes?: string | null;
   checklist?: Array<{
@@ -157,10 +293,14 @@ export interface SearchQuery {
   min_amount?: number;
   max_amount?: number;
   audience?: string[];
+  audiences?: OpportunityAudience[];
+  intent?: 'PERSONAL_ASSISTANCE' | 'BUSINESS_ASSISTANCE';
+  funding_purposes?: FundingPurpose[];
   source_id?: string;
   official_only?: boolean;
   active_only?: boolean;
   user_profile?: Partial<UserProfile>;
+  business_profile?: Partial<BusinessProfile>;
   limit?: number;
   offset?: number;
 }
@@ -176,6 +316,12 @@ export interface SearchResultItem {
   documents: string[];
   missing_information: string[];
   potential_disqualifiers: string[];
+  geographic_match?: {
+    level: GeographicMatchLevel;
+    matched: boolean;
+    score: number | null;
+    explanation: string;
+  };
   source_provenance: {
     source_name: string;
     source_url: string;

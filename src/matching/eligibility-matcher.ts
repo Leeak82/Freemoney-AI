@@ -5,6 +5,7 @@ import {
   MatchStatus,
 } from '../types/index.js';
 import { config } from '../config/index.js';
+import { geographicMatcher } from '../geography/geographic-matcher.js';
 
 export interface EligibilityMatchResult {
   matchScore: number | null; // Null if insufficient user profile
@@ -81,21 +82,22 @@ export class RuleBasedEligibilityMatcher implements IEligibilityMatcher {
     let totalPossible = 100;
 
     // 1. Geographic Location Evaluation
-    if (opportunity.location_scope === 'NATIONWIDE') {
-      matchedFactors.push('You qualify geographically: Program is open nationwide.');
-      scorePoints += 20;
-    } else if (profile.state && opportunity.states && opportunity.states.length > 0) {
-      if (opportunity.states.map((s) => s.toUpperCase()).includes(profile.state.toUpperCase())) {
-        matchedFactors.push(`You match the geographic state requirement (${profile.state.toUpperCase()}).`);
-        scorePoints += 25;
-      } else {
-        potentialDisqualifiers.push(
-          `Program is restricted to: ${opportunity.states.join(', ')}. Your profile state is ${profile.state}.`
-        );
-        scorePoints -= 40;
-      }
+    const geographicMatch = geographicMatcher.matchOpportunity(
+      {
+        country_code: profile.state || profile.zip_code ? 'US' : undefined,
+        state: profile.state,
+        postal_code: profile.zip_code,
+      },
+      opportunity
+    );
+    if (geographicMatch.matched) {
+      matchedFactors.push(geographicMatch.explanation);
+      scorePoints += Math.round((geographicMatch.score || 0) * 0.2);
+    } else if (geographicMatch.level === 'NO_MATCH') {
+      potentialDisqualifiers.push(geographicMatch.explanation);
+      scorePoints -= 40;
     } else {
-      missingInformation.push('Specific state or county residency verification');
+      missingInformation.push(...geographicMatch.missingInformation);
     }
 
     // 2. Audience & Demographic Matching

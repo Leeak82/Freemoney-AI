@@ -10,6 +10,12 @@
 - [x] Optional profile and dynamic application document checklists
 - [x] Full REST API and responsive user interface
 - [x] Automated test suite & architecture documentation
+- [x] Dual personal-assistance and business-startup paths
+- [x] Optional business profiles, normalized stages, structures, funding purposes, and audiences
+- [x] Universal deterministic geographic matcher with explicit unknown/no-match outcomes
+- [x] Startup and LLC checklist foundation with user-confirmed progress
+- [x] State-aware formation and business-requirement provider interfaces
+- [x] Official federal SBA/IRS guidance with unverified state facts preserved as unknown
 
 ---
 
@@ -18,6 +24,9 @@
 - [ ] Utility assistance connectors (LIHEAP state allocation portals)
 - [ ] Emergency food and housing voucher directories (HUD CoC API)
 - [ ] Top 500 philanthropic grant foundational feeds
+- [ ] Verified formation providers for U.S. states and territories
+- [ ] State/local license and permit provider integrations
+- [ ] Official contracting, certification, incubator, and workforce program feeds
 
 ---
 

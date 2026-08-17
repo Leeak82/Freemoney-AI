@@ -6,14 +6,21 @@ export async function seedDatabase() {
 
   // 1. Seed Categories
   for (const cat of INITIAL_CATEGORIES) {
+    const audienceType =
+      cat.slug === 'disaster-assistance'
+        ? 'BOTH'
+        : cat.sort_order >= 100 || cat.slug === 'small-business'
+          ? 'BUSINESS'
+          : 'PERSONAL';
     await query(
-      `INSERT INTO categories (slug, name, description, sort_order)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO categories (slug, name, description, sort_order, audience_type)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (slug) DO UPDATE
        SET name = EXCLUDED.name,
            description = EXCLUDED.description,
-           sort_order = EXCLUDED.sort_order;`,
-      [cat.slug, cat.name, cat.description, cat.sort_order]
+           sort_order = EXCLUDED.sort_order,
+           audience_type = EXCLUDED.audience_type;`,
+      [cat.slug, cat.name, cat.description, cat.sort_order, audienceType]
     );
   }
   console.log(`Seeded ${INITIAL_CATEGORIES.length} categories.`);

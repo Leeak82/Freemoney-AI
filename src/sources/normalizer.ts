@@ -1,5 +1,11 @@
 import crypto from 'crypto';
-import { Opportunity, ProgramType, LocationScope } from '../types/index.js';
+import {
+  FundingPurpose,
+  LocationScope,
+  Opportunity,
+  OpportunityAudience,
+  ProgramType,
+} from '../types/index.js';
 import { RawOpportunityItem, RawOpportunityDetail } from './registry.js';
 
 export class OpportunityNormalizer {
@@ -70,6 +76,42 @@ export class OpportunityNormalizer {
     return 'grants';
   }
 
+  public static inferAudiences(
+    title: string,
+    agency: string,
+    description?: string
+  ): OpportunityAudience[] {
+    const text = `${title} ${agency} ${description || ''}`.toLowerCase();
+    const audiences = new Set<OpportunityAudience>();
+    if (text.includes('small business') || text.includes('sbir') || text.includes('sttr')) {
+      audiences.add('SMALL_BUSINESS');
+    }
+    if (text.includes('startup') || text.includes('entrepreneur')) {
+      audiences.add('STARTUP');
+      audiences.add('ENTREPRENEUR');
+    }
+    if (text.includes('veteran')) audiences.add('VETERAN');
+    if (text.includes('student') || text.includes('scholarship')) audiences.add('STUDENT');
+    if (text.includes('nonprofit') || text.includes('non-profit')) audiences.add('NONPROFIT');
+    return [...audiences];
+  }
+
+  public static inferFundingPurposes(
+    title: string,
+    description?: string
+  ): FundingPurpose[] {
+    const text = `${title} ${description || ''}`.toLowerCase();
+    const purposes = new Set<FundingPurpose>();
+    if (text.includes('equipment')) purposes.add('EQUIPMENT');
+    if (text.includes('working capital')) purposes.add('WORKING_CAPITAL');
+    if (text.includes('training') || text.includes('workforce')) purposes.add('TRAINING');
+    if (text.includes('technology') || text.includes('innovation')) purposes.add('TECHNOLOGY');
+    if (text.includes('export')) purposes.add('EXPORT');
+    if (text.includes('disaster')) purposes.add('DISASTER_RECOVERY');
+    if (text.includes('expansion')) purposes.add('EXPANSION');
+    return [...purposes];
+  }
+
   /**
    * Parse date string safely into Date object or null
    */
@@ -125,6 +167,8 @@ export class OpportunityNormalizer {
       deadline,
       rolling_deadline: !deadline,
       location_scope: locationScope,
+      country_code: 'US',
+      regions: [],
       states: [],
       counties: [],
       cities: [],
@@ -147,6 +191,8 @@ export class OpportunityNormalizer {
       last_verified_at: new Date(),
       retrieved_at: new Date(),
       active: raw.oppStatus !== 'closed' && raw.oppStatus !== 'archived',
+      audiences: this.inferAudiences(title, provider, raw.description),
+      funding_purposes: this.inferFundingPurposes(title, raw.description),
     };
   }
 }
