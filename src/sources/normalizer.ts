@@ -4,6 +4,7 @@ import {
   LocationScope,
   Opportunity,
   OpportunityAudience,
+  OpportunityStatus,
   ProgramType,
 } from '../types/index.js';
 import { RawOpportunityItem, RawOpportunityDetail } from './registry.js';
@@ -16,14 +17,18 @@ export class OpportunityNormalizer {
     provider: string,
     title: string,
     locationScope: string,
-    applicationUrl?: string | null
+    applicationUrl?: string | null,
+    deadline?: Date | string | null
   ): string {
     const normProvider = (provider || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
     const normTitle = (title || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
     const normLoc = (locationScope || 'nationwide').toLowerCase().trim();
     const normUrl = (applicationUrl || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const normDeadline = deadline
+      ? new Date(deadline).toISOString().slice(0, 10)
+      : '';
 
-    const seed = `${normProvider}:${normTitle}:${normLoc}:${normUrl}`;
+    const seed = `${normProvider}:${normTitle}:${normLoc}:${normDeadline}:${normUrl}`;
     return crypto.createHash('sha256').update(seed).digest('hex');
   }
 
@@ -128,71 +133,108 @@ export class OpportunityNormalizer {
   public static normalizeFromRaw(
     raw: RawOpportunityItem,
     sourceId: string,
-    officialSource: boolean
+    officialSource: boolean,
+    detail: RawOpportunityDetail | null = raw.detail || null
   ): Partial<Opportunity> {
-    const title = (raw.title || '').trim();
-    const provider = (raw.agencyOrProvider || raw.agencyCode || 'Federal Agency').trim();
-    const deadline = this.parseDate(raw.closeDate);
-    const category = this.inferCategory(title, provider, raw.description);
+    const title = (detail?.title || raw.title || '').trim();
+    const provider = (
+      detail?.providerName ||
+      raw.agencyOrProvider ||
+      raw.agencyCode ||
+      ''
+    ).trim();
+    const deadline = detail?.deadline ?? this.parseDate(raw.closeDate);
+    const description = detail?.description || raw.description || '';
+    const category = this.inferCategory(title, provider, description);
     const sourceUrl = `https://www.grants.gov/search-results-detail/${raw.sourceOpportunityId}`;
-    const applicationUrl = `https://www.grants.gov/search-results-detail/${raw.sourceOpportunityId}`;
-    const locationScope: LocationScope = 'NATIONWIDE';
-    const fingerprint = this.generateFingerprint(provider, title, locationScope, applicationUrl);
+    const applicationUrl = detail?.applicationUrl || null;
+    const locationScope: LocationScope = detail?.locationScope || 'UNKNOWN';
+    const fingerprint = this.generateFingerprint(
+      provider,
+      title,
+      locationScope,
+      applicationUrl || sourceUrl,
+      deadline
+    );
 
-    let programType: ProgramType = 'GRANT';
+    let programType: ProgramType = detail?.programType || 'GRANT';
     if (title.toLowerCase().includes('scholarship') || title.toLowerCase().includes('fellowship')) {
       programType = 'SCHOLARSHIP';
     } else if (title.toLowerCase().includes('benefit') || title.toLowerCase().includes('assistance')) {
       programType = 'ASSISTANCE';
     }
 
-    const requiredDocs: string[] = ['Standard Application Form'];
-    if (raw.docType === 'synopsis') {
-      requiredDocs.push('Project Narrative', 'Budget Detail');
+    const rawStatus = raw.oppStatus?.toLowerCase();
+    let status: OpportunityStatus = detail?.status || 'UNKNOWN';
+    if (rawStatus === 'closed' || rawStatus === 'archived') status = 'CLOSED';
+    else if (rawStatus === 'forecasted') status = 'PAUSED';
+    else if (rawStatus === 'posted') {
+      status = deadline && deadline.getTime() < Date.now() ? 'EXPIRED' : 'ACTIVE';
     }
+    const inferredAudiences = this.inferAudiences(title, provider, description);
+    const audiences = [...new Set([...(detail?.audiences || []), ...inferredAudiences])];
+    const fundingPurposes = [
+      ...new Set([
+        ...(detail?.fundingPurposes || []),
+        ...this.inferFundingPurposes(title, description),
+      ]),
+    ];
 
     return {
       title,
-      description: raw.description || `Official grant opportunity #${raw.sourceOpportunityId} published by ${provider}. Document type: ${raw.docType || 'synopsis'}. Open date: ${raw.openDate || 'N/A'}.`,
+      description,
       provider_name: provider,
       source_id: sourceId,
-      source_url: sourceUrl,
+      source_url: detail?.sourceUrl || sourceUrl,
       application_url: applicationUrl,
+      application_url_type: detail?.applicationUrlType || 'UNKNOWN',
+      application_url_verified: detail?.applicationUrlVerified || false,
       category,
-      subcategories: raw.cfdaList ? raw.cfdaList.map((c) => `CFDA-${c}`) : [],
+      subcategories:
+        detail?.subcategories ||
+        (raw.cfdaList ? raw.cfdaList.map((value) => `ALN-${value}`) : []),
       program_type: programType,
-      amount_min: null,
-      amount_max: null,
-      currency: 'USD',
+      amount_min: detail?.amountMin ?? null,
+      amount_max: detail?.amountMax ?? null,
+      currency: detail?.currency || 'USD',
       deadline,
-      rolling_deadline: !deadline,
+      rolling_deadline: detail?.rollingDeadline || false,
       location_scope: locationScope,
-      country_code: 'US',
-      regions: [],
-      states: [],
-      counties: [],
-      cities: [],
-      zip_codes: [],
-      eligibility_summary: raw.eligibilities ? raw.eligibilities.join(', ') : 'Eligible applicants include entities specified by program guidelines.',
+      country_code: detail?.countryCode ?? null,
+      regions: detail?.regions || [],
+      states: detail?.states || [],
+      counties: detail?.counties || [],
+      cities: detail?.cities || [],
+      zip_codes: detail?.zipCodes || [],
+      eligibility_summary:
+        detail?.eligibilitySummary ||
+        (raw.eligibilities ? raw.eligibilities.join(', ') : null),
       eligibility_rules: {
-        rawStatus: raw.oppStatus,
-        cfdaList: raw.cfdaList,
-        docType: raw.docType,
+        ...(detail?.eligibilityRules || {}),
+        sourceStatus: raw.oppStatus || null,
       },
-      required_documents: requiredDocs,
-      contact_information: {
-        agency: provider,
-        agencyCode: raw.agencyCode,
+      required_documents: detail?.requiredDocuments || [],
+      contact_information: detail?.contactInfo || {
+        agencyCode: raw.agencyCode || null,
       },
       official_source: officialSource,
+      source_provider: provider,
+      source_metadata: {
+        ...(detail?.sourceMetadata || {}),
+        opportunityNumber: raw.sourceOpportunityNumber || null,
+        sourceDocumentType: raw.docType || null,
+        openDate: raw.openDate || null,
+        rawSummary: raw.rawPayload,
+      },
       raw_source_identifier: raw.sourceOpportunityId,
       source_opportunity_id: raw.sourceOpportunityId,
       dedup_fingerprint: fingerprint,
       last_verified_at: new Date(),
       retrieved_at: new Date(),
-      active: raw.oppStatus !== 'closed' && raw.oppStatus !== 'archived',
-      audiences: this.inferAudiences(title, provider, raw.description),
-      funding_purposes: this.inferFundingPurposes(title, raw.description),
+      status,
+      active: status === 'ACTIVE',
+      audiences,
+      funding_purposes: fundingPurposes,
     };
   }
 }

@@ -2,6 +2,12 @@ export type SourceType = 'API' | 'JSON' | 'CSV' | 'RSS' | 'WEB' | 'MANUAL';
 
 export type AuthType = 'NONE' | 'API_KEY' | 'OAUTH' | 'OTHER';
 
+export type SourceRole =
+  | 'OPPORTUNITY_FEED'
+  | 'RESOURCE'
+  | 'DISCOVERY_CATALOG'
+  | 'OPEN_DATA';
+
 export type SourceTrustLevel = 
   | 'OFFICIAL_GOVERNMENT'
   | 'OFFICIAL_ORGANIZATION'
@@ -18,6 +24,10 @@ export type DiscoveryStatus =
   | 'DISABLED';
 
 export type ProgramType = 'GRANT' | 'BENEFIT' | 'SCHOLARSHIP' | 'ASSISTANCE' | 'TAX_CREDIT' | 'LOAN' | 'EMERGENCY' | 'OTHER';
+
+export type OpportunityStatus = 'ACTIVE' | 'EXPIRED' | 'CLOSED' | 'PAUSED' | 'UNKNOWN';
+
+export type ApplicationLinkType = 'OFFICIAL_APPLICATION' | 'OFFICIAL_PROGRAM' | 'THIRD_PARTY' | 'UNKNOWN';
 
 export type LocationScope =
   | 'NATIONWIDE'
@@ -145,11 +155,19 @@ export interface Source {
   api_url: string | null;
   documentation_url: string | null;
   authentication_type: AuthType;
+  source_role?: SourceRole;
+  jurisdiction_scope?: LocationScope;
   trust_level: SourceTrustLevel;
   discovery_status: DiscoveryStatus;
   enabled: boolean;
   official: boolean;
   priority: number;
+  sync_frequency?: string | null;
+  request_timeout_ms?: number;
+  max_retries?: number;
+  page_size?: number;
+  max_pages?: number;
+  rate_limit_per_minute?: number | null;
   last_sync_at: Date | null;
   last_success_at: Date | null;
   last_error_at: Date | null;
@@ -166,6 +184,8 @@ export interface Opportunity {
   source_id: string;
   source_url: string;
   application_url: string | null;
+  application_url_type?: ApplicationLinkType;
+  application_url_verified?: boolean;
   category: string;
   subcategories: string[];
   program_type: ProgramType;
@@ -186,11 +206,14 @@ export interface Opportunity {
   required_documents: string[];
   contact_information: Record<string, any> | null;
   official_source: boolean;
+  source_provider?: string;
+  source_metadata?: Record<string, unknown>;
   raw_source_identifier: string;
   source_opportunity_id: string;
   dedup_fingerprint: string;
   last_verified_at: Date;
   retrieved_at: Date;
+  status?: OpportunityStatus;
   active: boolean;
   audiences?: OpportunityAudience[];
   funding_purposes?: FundingPurpose[];
@@ -330,5 +353,20 @@ export interface SearchResultItem {
     last_verified: string;
     retrieved_at: string;
     source_opportunity_id: string;
+    source_provider?: string;
+    additional_sources?: Array<{
+      source_id: string;
+      source_url: string;
+      source_opportunity_id: string;
+      source_provider: string;
+      official_source: boolean;
+      last_verified_at: string;
+    }>;
   };
+  application_links?: Array<{
+    url: string;
+    type: ApplicationLinkType;
+    official: boolean;
+    verified_at: string | null;
+  }>;
 }

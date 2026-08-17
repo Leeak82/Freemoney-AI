@@ -1,4 +1,17 @@
-import { Source, SourceTrustLevel, DiscoveryStatus, SourceType, AuthType } from '../types/index.js';
+import {
+  ApplicationLinkType,
+  AuthType,
+  DiscoveryStatus,
+  FundingPurpose,
+  LocationScope,
+  OpportunityAudience,
+  OpportunityStatus,
+  ProgramType,
+  Source,
+  SourceRole,
+  SourceTrustLevel,
+  SourceType,
+} from '../types/index.js';
 import { query } from '../db/index.js';
 
 export interface IOpportunitySource {
@@ -17,9 +30,13 @@ export interface SourceMetadata {
   apiUrl: string | null;
   documentationUrl: string | null;
   authType: AuthType;
+  sourceRole: SourceRole;
+  jurisdictionScope: LocationScope;
   trustLevel: SourceTrustLevel;
   official: boolean;
   priority: number;
+  defaultPageSize: number;
+  maxPages: number;
 }
 
 export interface SourceFetchParams {
@@ -29,17 +46,29 @@ export interface SourceFetchParams {
   startRecordNum?: number;
   oppStatuses?: string; // 'posted|forecasted'
   dateRange?: string;
+  opportunityNumber?: string;
+  agency?: string;
+  eligibility?: string;
+  fundingCategory?: string;
+  fundingInstrument?: string;
+  assistanceListingNumber?: string;
+  maxPages?: number;
+  includeDetails?: boolean;
 }
 
 export interface SourceFetchResult {
   sourceId: string;
   totalHits: number;
+  startRecord: number;
+  nextStartRecord: number | null;
+  hasMore: boolean;
   items: RawOpportunityItem[];
   rawResponse?: any;
 }
 
 export interface RawOpportunityItem {
   sourceOpportunityId: string;
+  sourceOpportunityNumber?: string;
   title: string;
   agencyOrProvider: string;
   agencyCode?: string;
@@ -52,6 +81,7 @@ export interface RawOpportunityItem {
   fundingCategories?: string[];
   eligibilities?: string[];
   rawPayload: any;
+  detail?: RawOpportunityDetail | null;
 }
 
 export interface RawOpportunityDetail {
@@ -61,17 +91,31 @@ export interface RawOpportunityDetail {
   providerName: string;
   sourceUrl: string;
   applicationUrl?: string;
+  applicationUrlType?: ApplicationLinkType;
+  applicationUrlVerified?: boolean;
   amountMin?: number;
   amountMax?: number;
   currency?: string;
   deadline?: Date | null;
   rollingDeadline?: boolean;
+  status?: OpportunityStatus;
+  programType?: ProgramType;
+  locationScope?: LocationScope;
+  countryCode?: string | null;
+  states?: string[];
+  counties?: string[];
+  cities?: string[];
+  zipCodes?: string[];
+  regions?: string[];
   category: string;
   subcategories: string[];
+  audiences?: OpportunityAudience[];
+  fundingPurposes?: FundingPurpose[];
   requiredDocuments: string[];
   eligibilitySummary?: string;
   eligibilityRules?: Record<string, any>;
   contactInfo?: Record<string, any>;
+  sourceMetadata?: Record<string, unknown>;
   rawPayload: any;
 }
 
@@ -93,14 +137,25 @@ export class SourceRegistry {
 
   public async getDbSources(): Promise<Source[]> {
     const res = await query<Source>(
-      `SELECT * FROM sources ORDER BY priority DESC, name ASC;`
+      `SELECT s.*,
+         (SELECT COUNT(*)::int FROM opportunities o WHERE o.source_id = s.id) AS opportunity_count,
+         (SELECT COUNT(*)::int FROM opportunities o WHERE o.source_id = s.id AND o.status = 'ACTIVE') AS active_opportunity_count
+       FROM sources s
+       ORDER BY s.priority DESC, s.name ASC;`
     );
     return res.rows;
   }
 
   public async getDbSourceById(sourceId: string): Promise<Source | null> {
     const res = await query<Source>(
-      `SELECT * FROM sources WHERE id = $1;`,
+      `SELECT s.*,
+         (SELECT COUNT(*)::int FROM opportunities o WHERE o.source_id = s.id) AS opportunity_count,
+         (SELECT COUNT(*)::int FROM opportunities o WHERE o.source_id = s.id AND o.status = 'ACTIVE') AS active_opportunity_count,
+         COALESCE((
+           SELECT json_agg(sr ORDER BY sr.started_at DESC)
+           FROM (SELECT * FROM sync_runs WHERE source_id = s.id ORDER BY started_at DESC LIMIT 10) sr
+         ), '[]'::json) AS recent_sync_runs
+       FROM sources s WHERE s.id = $1;`,
       [sourceId]
     );
     return res.rows[0] || null;

@@ -216,3 +216,41 @@ Providers may return only source-backed facts. Unsupported states or industries 
 
 ### 6.6. Startup and LLC workflow
 The startup wizard persists a small business profile first, then derives a configurable checklist appropriate to the selected stage. LLC guidance is structure- and state-aware. Phase 1 exposes the workflow architecture, progress tracking, universal IRS EIN guidance, and verified provider results where available. It never presents formation guidance as legal advice and never submits a filing.
+
+---
+
+## 7. Phase 2: Real Assistance Data Network
+
+### 7.1. Local-first source pipeline
+User searches never call upstream APIs. Each active feed is synchronized through:
+
+`SOURCE → RESILIENT HTTP → RAW PARSING → DETAIL ENRICHMENT → NORMALIZATION → VALIDATION → DEDUPLICATION → POSTGRESQL`
+
+The searchable database is the cache and system of record for normalized opportunities. Raw source identifiers and useful source-specific metadata remain attached to each record.
+
+### 7.2. Resilient transport
+All opportunity feeds use a shared HTTP client with source-specific timeout, retry, backoff, request spacing, page-size, and maximum-page controls. HTTP 429, transient 5xx responses, timeouts, invalid JSON, schema failures, and page/detail failures are classified and persisted. A failed source cannot terminate another source’s synchronization.
+
+### 7.3. Grants.gov contract
+`GrantsGovSource` uses only the documented, unauthenticated endpoints:
+
+- `POST /v1/api/search2` for filtered, paginated summaries;
+- `POST /v1/api/fetchOpportunity` with `{ "opportunityId": number }` for details.
+
+Search pages retain the numeric Grants.gov opportunity ID and opportunity number. Detail enrichment supplies published description, applicant types, funding instruments/categories, award floor/ceiling, response date, agency contacts, Assistance Listing numbers, package identifiers, and a verified application URL only when the API explicitly returns one.
+
+### 7.4. Status and history
+Opportunities use `ACTIVE | EXPIRED | CLOSED | PAUSED | UNKNOWN`. Expired or closed records remain stored for application history and analytics but are excluded from active search by default. A sync may deactivate unseen records only after a complete, unfiltered source traversal; partial/limited runs never infer removal.
+
+### 7.5. Source roles
+The source registry distinguishes:
+
+- `OPPORTUNITY_FEED`: supplies normalized opportunity records;
+- `RESOURCE`: verified official guidance but not a funding feed;
+- `DISCOVERY_CATALOG`: candidate API directory, never authoritative;
+- `OPEN_DATA`: official data that is not automatically an assistance opportunity feed.
+
+Discovered candidate APIs are persisted separately and follow `DISCOVERED → REVIEW → VERIFIED → ACTIVE`. Discovery never activates a candidate.
+
+### 7.6. Synchronization coordination
+`SourceSyncCoordinator` can synchronize one source or all enabled opportunity feeds while isolating failures. `ISyncScheduleProvider` describes future daily, six-hour, or source-specific schedules without requiring a production scheduler in Phase 2. Sync runs record found, created, updated, deactivated, rejected, and error counts.

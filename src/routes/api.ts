@@ -110,12 +110,21 @@ const businessProfileSchema = z.object({
 // ==========================================
 apiRouter.get('/opportunities', async (req: Request, res: Response) => {
   try {
-    const { category, keyword, state, official_only, limit, offset } = req.query;
+    const {
+      category, keyword, state, county, city, zip, program_type, source_id,
+      official_only, active_only, limit, offset,
+    } = req.query;
     const searchResult = await searchEngine.search({
       category: category as string,
       keyword: keyword as string,
       state: state as string,
+      county: county as string,
+      city: city as string,
+      zip: zip as string,
+      program_type: program_type as any,
+      source_id: source_id as string,
       official_only: official_only === 'true',
+      active_only: active_only !== 'false',
       limit: limit ? parseInt(limit as string, 10) : 20,
       offset: offset ? parseInt(offset as string, 10) : 0,
     });
@@ -405,13 +414,28 @@ apiRouter.patch('/applications/:id', async (req: Request, res: Response) => {
 apiRouter.post('/sync/:source', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const sourceId = req.params.source;
-    const rows = req.body.rows ? parseInt(req.body.rows, 10) : 50;
-    const keyword = req.body.keyword || '';
-
-    const syncResult = await syncEngine.syncSource(sourceId, { rows, keyword });
-    res.json({ success: syncResult.status === 'SUCCESS', result: syncResult });
+    const params = z.object({
+      rows: z.coerce.number().int().min(1).max(100).optional(),
+      max_pages: z.coerce.number().int().min(1).max(100).optional(),
+      keyword: z.string().trim().max(255).optional(),
+      opp_statuses: z.string().trim().max(100).optional(),
+      agency: z.string().trim().max(100).optional(),
+      funding_category: z.string().trim().max(100).optional(),
+      include_details: z.boolean().optional(),
+    }).parse(req.body || {});
+    const syncResult = await syncEngine.syncSource(sourceId, {
+      rows: params.rows,
+      maxPages: params.max_pages,
+      keyword: params.keyword,
+      oppStatuses: params.opp_statuses,
+      agency: params.agency,
+      fundingCategory: params.funding_category,
+      includeDetails: params.include_details,
+    });
+    res.json({ success: syncResult.status !== 'FAILED', result: syncResult });
   } catch (err: any) {
-    res.status(500).json({ error: 'Synchronization failed', details: err.message });
+    const details = err instanceof z.ZodError ? err.flatten() : err.message;
+    res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Synchronization failed', details });
   }
 });
 
@@ -434,7 +458,8 @@ apiRouter.get('/admin/health', requireAdminAuth, async (_req: Request, res: Resp
 
     const statsRes = await query(`
       SELECT 
-        (SELECT COUNT(*) FROM opportunities WHERE active = true) AS active_opportunities,
+        (SELECT COUNT(*) FROM opportunities WHERE status = 'ACTIVE') AS active_opportunities,
+        (SELECT COUNT(*) FROM opportunities WHERE status = 'EXPIRED') AS expired_opportunities,
         (SELECT COUNT(*) FROM sources) AS total_sources,
         (SELECT COUNT(*) FROM applications) AS total_applications,
         (SELECT COUNT(*) FROM sync_runs WHERE status = 'SUCCESS') AS successful_syncs,
@@ -467,32 +492,118 @@ apiRouter.get('/admin/sync-runs', requireAdminAuth, async (_req: Request, res: R
 
 apiRouter.patch('/admin/sources/:id', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { enabled, discovery_status } = req.body;
+    const { enabled, discovery_status } = z.object({
+      enabled: z.boolean().optional(),
+      discovery_status: z.enum([
+        'DISCOVERED', 'REVIEW', 'VERIFIED', 'ACTIVE', 'REJECTED', 'DISABLED',
+      ]).optional(),
+    }).parse(req.body);
     await sourceRegistry.updateSourceStatus(req.params.id, { enabled, discovery_status });
-    res.json({ success: true, message: `Source ${req.params.id} status updated.` });
+    const source = await sourceRegistry.getDbSourceById(req.params.id);
+    if (!source) {
+      res.status(404).json({ error: 'Source not found' });
+      return;
+    }
+    res.json({ success: true, source });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to update source status', details: err.message });
+    const details = err instanceof z.ZodError ? err.flatten() : err.message;
+    res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Failed to update source status', details });
   }
 });
 
 apiRouter.post('/admin/discover-apis', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const parser = new PublicApisDiscoveryParser();
-    const url =
-      req.body.url ||
-      'https://raw.githubusercontent.com/public-apis/public-apis/master/README.md';
-
-    const candidates = await parser.fetchAndDiscover(url);
-    const assistanceCandidates = candidates.filter(
-      (c) => c.classifiedCategory !== 'OTHER' || c.trustLevel === 'OFFICIAL_GOVERNMENT'
+    const input = z.object({
+      catalog_source_id: z.enum(['public-api-lists', 'n0shake-public-apis']),
+      url: z.string().url().optional(),
+    }).parse(req.body || {});
+    const catalogUrls: Record<string, string> = {
+      'public-api-lists':
+        'https://raw.githubusercontent.com/public-api-lists/public-api-lists/master/README.md',
+      'n0shake-public-apis':
+        'https://raw.githubusercontent.com/n0shake/Public-APIs/master/README.md',
+    };
+    const outcome = await parser.discoverAndPersist(
+      input.catalog_source_id,
+      input.url || catalogUrls[input.catalog_source_id]
     );
-
-    res.json({
-      total_found: candidates.length,
-      assistance_relevant: assistanceCandidates.length,
-      candidates: assistanceCandidates.slice(0, 100),
-    });
+    const relevant = await query(
+      `SELECT * FROM source_candidates
+       WHERE catalog_source_id=$1 AND discovery_category <> 'OTHER'
+       ORDER BY relevance_score DESC, name ASC LIMIT 100;`,
+      [input.catalog_source_id]
+    );
+    res.json({ ...outcome, candidates: relevant.rows });
   } catch (err: any) {
-    res.status(500).json({ error: 'Discovery parser execution failed', details: err.message });
+    const details = err instanceof z.ZodError ? err.flatten() : err.message;
+    res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Discovery parser execution failed', details });
+  }
+});
+
+apiRouter.get('/admin/source-candidates', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const status = req.query.status ? String(req.query.status).toUpperCase() : null;
+    const category = req.query.category ? String(req.query.category).toUpperCase() : null;
+    const result = await query(
+      `SELECT * FROM source_candidates
+       WHERE ($1::text IS NULL OR lifecycle_status=$1)
+         AND ($2::text IS NULL OR discovery_category=$2)
+       ORDER BY relevance_score DESC, discovered_at DESC
+       LIMIT 250;`,
+      [status, category]
+    );
+    res.json({ candidates: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch source candidates', details: err.message });
+  }
+});
+
+apiRouter.patch('/admin/source-candidates/:id', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = z.object({
+      lifecycle_status: z.enum(['REVIEW', 'VERIFIED', 'ACTIVE', 'REJECTED', 'DISABLED']),
+      trust_level: z.enum([
+        'OFFICIAL_GOVERNMENT', 'OFFICIAL_ORGANIZATION', 'VERIFIED_PARTNER',
+        'COMMUNITY', 'UNKNOWN',
+      ]).optional(),
+      review_notes: z.string().max(4000).optional(),
+    }).parse(req.body);
+    const current = await query<any>(
+      `SELECT * FROM source_candidates WHERE id=$1;`,
+      [req.params.id]
+    );
+    if (!current.rows[0]) {
+      res.status(404).json({ error: 'Source candidate not found' });
+      return;
+    }
+    const allowed: Record<string, string[]> = {
+      DISCOVERED: ['REVIEW', 'REJECTED'],
+      REVIEW: ['VERIFIED', 'REJECTED'],
+      VERIFIED: ['ACTIVE', 'DISABLED', 'REVIEW'],
+      ACTIVE: ['DISABLED', 'REVIEW'],
+      DISABLED: ['REVIEW'],
+      REJECTED: ['REVIEW'],
+    };
+    if (!allowed[current.rows[0].lifecycle_status]?.includes(input.lifecycle_status)) {
+      res.status(409).json({ error: `Invalid lifecycle transition from ${current.rows[0].lifecycle_status} to ${input.lifecycle_status}` });
+      return;
+    }
+    if (input.lifecycle_status === 'ACTIVE' && (input.trust_level || current.rows[0].trust_level) === 'UNKNOWN') {
+      res.status(409).json({ error: 'An UNKNOWN-trust candidate cannot be activated' });
+      return;
+    }
+    const updated = await query(
+      `UPDATE source_candidates SET lifecycle_status=$2,
+         trust_level=COALESCE($3, trust_level), review_notes=COALESCE($4, review_notes),
+         reviewed_at=CASE WHEN $2 IN ('REVIEW','VERIFIED','ACTIVE') THEN CURRENT_TIMESTAMP ELSE reviewed_at END,
+         verified_at=CASE WHEN $2 IN ('VERIFIED','ACTIVE') THEN CURRENT_TIMESTAMP ELSE verified_at END
+       WHERE id=$1 RETURNING *;`,
+      [req.params.id, input.lifecycle_status, input.trust_level || null, input.review_notes || null]
+    );
+    res.json({ success: true, candidate: updated.rows[0] });
+  } catch (err: any) {
+    const details = err instanceof z.ZodError ? err.flatten() : err.message;
+    res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Failed to update source candidate', details });
   }
 });

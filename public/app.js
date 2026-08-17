@@ -23,6 +23,45 @@ const state = {
   loading: false,
 };
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(value);
+    return ['https:', 'http:'].includes(url.protocol) ? escapeHtml(url.href) : '#';
+  } catch {
+    return '#';
+  }
+}
+
+function formatOpportunityLocation(opp) {
+  if (opp.location_scope === 'UNKNOWN') return 'Unknown — verify with program administrator';
+  if (opp.location_scope === 'NATIONWIDE') return 'Nationwide';
+  if (opp.location_scope === 'ONLINE') return 'Online';
+  if (opp.location_scope === 'COUNTRY') return opp.country_code === 'US' ? 'United States' : (opp.country_code || 'Country not published');
+  const places = [...(opp.states || []), ...(opp.counties || []), ...(opp.cities || []), ...(opp.zip_codes || [])];
+  return places.length ? places.join(', ') : opp.location_scope;
+}
+
+function formatOpportunityAmount(opp) {
+  if (opp.amount_min == null && opp.amount_max == null) return 'Not published';
+  const currency = opp.currency || 'USD';
+  const format = (value) => new Intl.NumberFormat('en-US', {
+    style: 'currency', currency, maximumFractionDigits: 0,
+  }).format(value);
+  if (opp.amount_min != null && opp.amount_max != null && Number(opp.amount_min) !== Number(opp.amount_max)) {
+    return `${format(opp.amount_min)} – ${format(opp.amount_max)}`;
+  }
+  return format(opp.amount_max ?? opp.amount_min);
+}
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   setupNavigation();
@@ -278,9 +317,9 @@ function renderOpportunityCards(items, container) {
   if (items.length === 0) {
     container.innerHTML = `
       <div style="text-align: center; padding: 40px 0; background: var(--card-bg); border-radius: 12px; border: 1px dashed var(--surface-border);">
-        <h3 style="margin-bottom: 8px;">No matching programs found</h3>
+        <h3 style="margin-bottom: 8px;">No verified opportunities found for this search.</h3>
         <p style="color: var(--text-muted); max-width: 500px; margin: 0 auto 20px;">
-          Try adjusting your search criteria, selecting fewer filters, or synchronizing official sources in the Admin panel.
+          Try a broader location or category.
         </p>
         <a href="/opportunities" class="btn btn-secondary">Browse All Live Programs</a>
       </div>
@@ -301,18 +340,19 @@ function renderOpportunityCards(items, container) {
           const isOfficial = prov.official_source;
           const deadlineText = opp.deadline
             ? new Date(opp.deadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-            : 'Rolling / Open Deadline';
+            : 'Not published';
 
           const hasScore = item.match_score !== null;
+          const officialApplication = opp.application_url && opp.application_url_verified;
 
           return `
             <div class="opportunity-card">
               <div class="card-top">
                 <div>
                   <div style="font-size: 0.85rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">
-                    ${opp.category.replace(/-/g, ' ')} • ${opp.provider_name}
+                    ${escapeHtml(opp.category.replace(/-/g, ' '))} • ${escapeHtml(opp.provider_name)}
                   </div>
-                  <h3 class="card-title">${opp.title}</h3>
+                  <h3 class="card-title">${escapeHtml(opp.title)}</h3>
                 </div>
                 <span class="badge-trust ${isOfficial ? 'badge-official-gov' : 'badge-partner'}">
                   ${isOfficial ? 'Official Government' : prov.trust_level}
@@ -320,7 +360,8 @@ function renderOpportunityCards(items, container) {
               </div>
 
               <div class="meta-row">
-                <div class="meta-item">Location: <strong>${opp.location_scope === 'NATIONWIDE' ? 'Nationwide (All States)' : (opp.states.join(', ') || 'United States')}</strong></div>
+                <div class="meta-item">Amount: <strong>${escapeHtml(formatOpportunityAmount(opp))}</strong></div>
+                <div class="meta-item">Location: <strong>${escapeHtml(formatOpportunityLocation(opp))}</strong></div>
                 <div class="meta-item">Deadline: <strong>${deadlineText}</strong></div>
                 <div class="meta-item">Last Verified: <strong>${prov.last_verified}</strong></div>
               </div>
@@ -330,19 +371,20 @@ function renderOpportunityCards(items, container) {
                 <div class="match-box-title">
                   ${
                     hasScore
-                      ? `<span class="match-score-pill">${item.match_score}% Match</span> <strong>${item.match_status.replace(/_/g, ' ')}</strong>`
-                      : `<strong>Needs Verification:</strong> ${item.missing_information[0] || 'Complete profile for matching'}`
+                      ? `<span class="match-score-pill">${item.match_score}% Potential Match</span> <strong>${escapeHtml(item.match_status.replace(/_/g, ' '))}</strong>`
+                      : `<strong>Needs Verification:</strong> ${escapeHtml(item.missing_information[0] || 'Complete your optional profile to improve matching.')}`
                   }
                 </div>
                 <div style="font-size: 0.88rem; color: var(--text-muted); margin-top: 4px;">
-                  ${item.why_you_may_qualify.join(' ')}
+                  ${escapeHtml(item.why_you_may_qualify.join(' ') || 'Published eligibility information is incomplete; review the official notice.')}
                 </div>
               </div>
 
               <!-- Action Buttons -->
               <div class="card-actions">
                 <a href="/opportunities/${opp.id}" class="btn btn-secondary view-detail-link" data-id="${opp.id}">View Program Details</a>
-                <a href="${opp.source_url}" target="_blank" rel="noopener" class="btn btn-outline">Official Source ↗</a>
+                <a href="${safeExternalUrl(opp.source_url)}" target="_blank" rel="noopener" class="btn btn-outline">Official Program Page ↗</a>
+                ${officialApplication ? `<a href="${safeExternalUrl(opp.application_url)}" target="_blank" rel="noopener" class="btn btn-outline">Official Application ↗</a>` : ''}
                 <button class="btn btn-primary btn-track-app" data-id="${opp.id}">Prepare Application</button>
               </div>
             </div>
@@ -383,6 +425,10 @@ async function renderOpportunityDetailView(oppId) {
     const data = await res.json();
     const opp = data.opportunity;
     const prov = data.source_provenance;
+    const officialApplication = (data.application_links || []).find(
+      (link) => link.official && link.type === 'OFFICIAL_APPLICATION'
+    );
+    const additionalSources = prov.additional_sources || [];
 
     root.innerHTML = `
       <div style="margin-bottom: 20px;">
@@ -392,43 +438,55 @@ async function renderOpportunityDetailView(oppId) {
       <div class="detail-grid">
         <div>
           <div style="font-size: 0.9rem; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 6px;">
-            ${opp.category.replace(/-/g, ' ')} • Official Program ID: ${opp.source_opportunity_id}
+            ${escapeHtml(opp.category.replace(/-/g, ' '))} • Source Program ID: ${escapeHtml(opp.source_opportunity_id)}
           </div>
-          <h1 style="font-size: 2rem; margin-bottom: 16px; line-height: 1.3;">${opp.title}</h1>
+          <h1 style="font-size: 2rem; margin-bottom: 16px; line-height: 1.3;">${escapeHtml(opp.title)}</h1>
 
           <div class="meta-row" style="margin-bottom: 24px;">
-            <div class="meta-item">Agency / Provider: <strong>${opp.provider_name}</strong></div>
-            <div class="meta-item">Location: <strong>${opp.location_scope}</strong></div>
-            <div class="meta-item">Deadline: <strong>${opp.deadline ? new Date(opp.deadline).toLocaleDateString() : 'Rolling'}</strong></div>
+            <div class="meta-item">Agency / Provider: <strong>${escapeHtml(opp.provider_name)}</strong></div>
+            <div class="meta-item">Amount: <strong>${escapeHtml(formatOpportunityAmount(opp))}</strong></div>
+            <div class="meta-item">Location: <strong>${escapeHtml(formatOpportunityLocation(opp))}</strong></div>
+            <div class="meta-item">Deadline: <strong>${opp.deadline ? new Date(opp.deadline).toLocaleDateString() : 'Not published'}</strong></div>
+            <div class="meta-item">Status: <strong>${escapeHtml(opp.status || 'UNKNOWN')}</strong></div>
           </div>
 
           <div class="search-card" style="margin-bottom: 24px;">
             <h3 style="margin-bottom: 12px; font-size: 1.1rem;">Program Overview & Purpose</h3>
-            <p style="color: var(--text-muted); white-space: pre-line;">${opp.description}</p>
+            <p style="color: var(--text-muted); white-space: pre-line;">${escapeHtml(opp.description || 'Description not published by the source.')}</p>
           </div>
 
           <div class="search-card" style="margin-bottom: 24px;">
             <h3 style="margin-bottom: 12px; font-size: 1.1rem;">Eligibility & Requirements</h3>
-            <p style="color: var(--text-muted);">${opp.eligibility_summary || 'Please consult the official funding notice for granular eligibility criteria.'}</p>
+            <p style="color: var(--text-muted);">${escapeHtml(opp.eligibility_summary || 'Unknown — verify with the program administrator and official notice.')}</p>
+            <p style="color: var(--text-dim); margin-top: 10px;">Audience: ${escapeHtml((opp.audiences || []).join(', ') || 'Not published')}</p>
           </div>
 
           <div class="search-card">
             <h3 style="margin-bottom: 12px; font-size: 1.1rem;">Required Documentation Checklist</h3>
             <div>
-              ${data.documents
+              ${(data.documents || []).length ? data.documents
                 .map(
                   (doc) => `
                 <div class="checklist-item">
                   <span style="color: var(--primary); font-size: 1.1rem;">📄</span>
                   <div>
-                    <strong style="color: #fff;">${doc}</strong>
-                    <div style="font-size: 0.82rem; color: var(--text-dim);">Official required verification document</div>
+                    <strong style="color: #fff;">${escapeHtml(doc)}</strong>
+                    <div style="font-size: 0.82rem; color: var(--text-dim);">Published by the opportunity source</div>
                   </div>
                 </div>
               `
                 )
-                .join('')}
+                .join('') : '<p style="color: var(--text-muted);">Required documents were not published in the source data. Verify the official notice.</p>'}
             </div>
+          </div>
+
+          <div class="search-card" style="margin-top: 24px;">
+            <h3 style="margin-bottom: 12px; font-size: 1.1rem;">Application Process</h3>
+            <p style="color: var(--text-muted);">
+              ${officialApplication
+                ? 'A verified official application link is available below.'
+                : 'Application link not verified. Use the official program page to confirm how to apply.'}
+            </p>
           </div>
         </div>
 
@@ -438,16 +496,24 @@ async function renderOpportunityDetailView(oppId) {
               Source Provenance & Verification
             </h3>
             <div style="font-size: 0.88rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px;">
-              <div>Origin: <strong>${prov.source_name}</strong></div>
-              <div>Verification Level: <strong>${prov.trust_level}</strong></div>
-              <div>Official Source: <strong>${prov.official_source ? 'Yes (Government)' : 'Verified Partner'}</strong></div>
-              <div>Raw Source ID: <strong>${prov.source_opportunity_id}</strong></div>
-              <div>Last Verified: <strong>${prov.last_verified}</strong></div>
+              <div>Source: <strong>${escapeHtml(prov.source_name)}</strong></div>
+              <div>Source Provider: <strong>${escapeHtml(prov.source_provider || opp.provider_name)}</strong></div>
+              <div>Verification Level: <strong>${escapeHtml(prov.trust_level)}</strong></div>
+              <div>Official Source: <strong>${prov.official_source ? 'Yes (Government)' : 'No'}</strong></div>
+              <div>Raw Source ID: <strong>${escapeHtml(prov.source_opportunity_id)}</strong></div>
+              <div>Last Verified: <strong>${escapeHtml(prov.last_verified)}</strong></div>
+              <div>Retrieved: <strong>${escapeHtml(prov.retrieved_at)}</strong></div>
+              <div>Source Records: <strong>${additionalSources.length}</strong></div>
             </div>
             <div style="margin-top: 18px; display: flex; flex-direction: column; gap: 8px;">
-              <a href="${opp.source_url}" target="_blank" rel="noopener" class="btn btn-secondary" style="width: 100%;">
-                View Official Listing ↗
+              <a href="${safeExternalUrl(opp.source_url)}" target="_blank" rel="noopener" class="btn btn-secondary" style="width: 100%;">
+                Official Program Page ↗
               </a>
+              ${officialApplication ? `
+                <a href="${safeExternalUrl(officialApplication.url)}" target="_blank" rel="noopener" class="btn btn-secondary" style="width: 100%;">
+                  Official Application ↗
+                </a>
+              ` : '<div style="font-size:0.85rem;color:var(--text-muted);text-align:center;">Application link not verified.</div>'}
               <button class="btn btn-primary" id="btn-prepare-detail" style="width: 100%;">
                 Prepare Application
               </button>
@@ -987,7 +1053,7 @@ async function startApplication(oppId) {
 // ----------------------------------------------------------------
 async function renderAdminView() {
   const root = document.getElementById('app-root');
-  const adminKey = 'test-admin-secret-key'; // Default dev/test key
+  let adminKey = sessionStorage.getItem('freemoney-admin-key') || '';
 
   root.innerHTML = `
     <div style="margin-bottom: 24px;">
@@ -996,16 +1062,33 @@ async function renderAdminView() {
     </div>
 
     <div class="search-card" style="margin-bottom: 24px;">
-      <h3 style="margin-bottom: 14px;">Manual Source Ingestion Triggers</h3>
+      <h3 style="margin-bottom: 14px;">Admin Authentication</h3>
+      <div style="display:flex; gap:12px;">
+        <input id="admin-key" type="password" class="form-control" placeholder="Admin API key" value="">
+        <button id="btn-save-admin-key" class="btn btn-secondary">Use Key</button>
+      </div>
+      <p style="font-size:0.8rem;color:var(--text-dim);margin-top:8px;">The key is held only in this browser tab.</p>
+    </div>
+
+    <div class="search-card" style="margin-bottom: 24px;">
+      <h3 style="margin-bottom: 14px;">Source Operations</h3>
       <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <button id="btn-sync-grants" class="btn btn-primary">Sync Grants.gov (Real API)</button>
-        <button id="btn-discover-apis" class="btn btn-secondary">Run Public-APIs Catalog Discovery</button>
+        <button id="btn-sync-grants" class="btn btn-primary">Sync Grants.gov</button>
+        <button id="btn-discover-apis" class="btn btn-secondary">Import Public API Candidates</button>
       </div>
       <div id="sync-status" style="margin-top: 14px; font-size: 0.9rem; color: var(--text-muted);"></div>
     </div>
 
     <div id="admin-sources-list">Loading registered sources...</div>
+    <div id="admin-sync-history" style="margin-top:24px;"></div>
   `;
+
+  document.getElementById('btn-save-admin-key').addEventListener('click', () => {
+    adminKey = document.getElementById('admin-key').value.trim();
+    if (adminKey) sessionStorage.setItem('freemoney-admin-key', adminKey);
+    document.getElementById('admin-key').value = '';
+    document.getElementById('sync-status').textContent = adminKey ? 'Admin key loaded for this tab.' : 'Enter an admin key.';
+  });
 
   try {
     const res = await fetch(`${API_BASE}/sources`);
@@ -1018,16 +1101,25 @@ async function renderAdminView() {
         ${sources
           .map(
             (s) => `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--surface-border);">
+          <div style="display: flex; justify-content: space-between; gap:16px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--surface-border);">
             <div>
-              <strong>${s.name}</strong> <span style="font-size: 0.8rem; color: var(--primary);">[${s.trust_level}]</span>
-              <div style="font-size: 0.82rem; color: var(--text-muted);">${s.organization} • Base: ${s.base_url}</div>
-              <div style="font-size: 0.78rem; color: var(--text-dim);">Last Synced: ${s.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : 'Never'}</div>
+              <strong>${escapeHtml(s.name)}</strong> <span style="font-size: 0.8rem; color: var(--primary);">[${escapeHtml(s.trust_level)}]</span>
+              <div style="font-size: 0.82rem; color: var(--text-muted);">${escapeHtml(s.organization)} • ${escapeHtml(s.source_role || 'RESOURCE')} • ${escapeHtml(s.discovery_status)}</div>
+              <div style="font-size: 0.78rem; color: var(--text-dim);">
+                Opportunities: ${Number(s.opportunity_count || 0)} (${Number(s.active_opportunity_count || 0)} active)
+                • Last sync: ${s.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : 'Never'}
+                • Last success: ${s.last_success_at ? new Date(s.last_success_at).toLocaleString() : 'Never'}
+              </div>
+              ${s.last_error_message ? `<div style="font-size:0.78rem;color:var(--danger);">${escapeHtml(s.last_error_message)}</div>` : ''}
             </div>
-            <div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
               <span class="badge-trust ${s.enabled ? 'badge-official-gov' : 'badge-partner'}">
-                ${s.enabled ? 'Active' : 'Disabled'}
+                ${s.enabled ? 'Enabled' : 'Disabled'}
               </span>
+              <button class="btn btn-outline btn-inspect-source" data-source="${escapeHtml(s.id)}">Inspect</button>
+              <button class="btn btn-outline btn-toggle-source" data-source="${escapeHtml(s.id)}" data-enabled="${s.enabled}" data-status="${escapeHtml(s.discovery_status)}">
+                ${s.enabled ? 'Disable' : 'Enable'}
+              </button>
             </div>
           </div>
         `
@@ -1036,8 +1128,15 @@ async function renderAdminView() {
       </div>
     `;
 
+    const requireKey = () => {
+      if (adminKey) return true;
+      document.getElementById('sync-status').textContent = 'Enter the admin API key first.';
+      return false;
+    };
+
     document.getElementById('btn-sync-grants').addEventListener('click', async () => {
       const statusDiv = document.getElementById('sync-status');
+      if (!requireKey()) return;
       statusDiv.innerHTML = 'Executing real Grants.gov API sync...';
       try {
         const syncRes = await fetch(`${API_BASE}/sync/grants-gov`, {
@@ -1046,10 +1145,11 @@ async function renderAdminView() {
             'Content-Type': 'application/json',
             'X-Admin-Key': adminKey,
           },
-          body: JSON.stringify({ rows: 30 }),
+          body: JSON.stringify({ rows: 10, max_pages: 1, include_details: true }),
         });
         const syncData = await syncRes.json();
-        statusDiv.innerHTML = `<span style="color: var(--primary);">Grants.gov Sync Result: Fetched ${syncData.result.fetched}, Inserted ${syncData.result.inserted}, Updated ${syncData.result.updated}</span>`;
+        if (!syncRes.ok) throw new Error(syncData.details || syncData.error);
+        statusDiv.innerHTML = `<span style="color: var(--primary);">Grants.gov: ${escapeHtml(syncData.result.status)} — found ${syncData.result.found}, fetched ${syncData.result.fetched}, created ${syncData.result.created}, updated ${syncData.result.updated}, rejected ${syncData.result.rejected}, errors ${syncData.result.errors}.</span>`;
       } catch (err) {
         statusDiv.innerHTML = `<span style="color: var(--danger);">Sync failed: ${err.message}</span>`;
       }
@@ -1057,6 +1157,7 @@ async function renderAdminView() {
 
     document.getElementById('btn-discover-apis').addEventListener('click', async () => {
       const statusDiv = document.getElementById('sync-status');
+      if (!requireKey()) return;
       statusDiv.innerHTML = 'Parsing public-apis catalog candidates...';
       try {
         const discRes = await fetch(`${API_BASE}/admin/discover-apis`, {
@@ -1065,13 +1166,75 @@ async function renderAdminView() {
             'Content-Type': 'application/json',
             'X-Admin-Key': adminKey,
           },
+          body: JSON.stringify({ catalog_source_id: 'public-api-lists' }),
         });
         const discData = await discRes.json();
-        statusDiv.innerHTML = `<span style="color: var(--primary);">Discovery Complete: Scanned ${discData.total_found} total APIs, identified ${discData.assistance_relevant} assistance candidates.</span>`;
+        if (!discRes.ok) throw new Error(discData.details || discData.error);
+        statusDiv.innerHTML = `<span style="color: var(--primary);">Discovery complete: ${discData.discovered} catalog entries parsed and ${discData.persisted} candidates persisted. All remain in review lifecycle.</span>`;
       } catch (err) {
         statusDiv.innerHTML = `<span style="color: var(--danger);">Discovery failed: ${err.message}</span>`;
       }
     });
+
+    document.querySelectorAll('.btn-toggle-source').forEach((button) => {
+      button.addEventListener('click', async () => {
+        if (!requireKey()) return;
+        const sourceId = button.dataset.source;
+        const enabled = button.dataset.enabled !== 'true';
+        const currentStatus = button.dataset.status;
+        const response = await fetch(`${API_BASE}/admin/sources/${encodeURIComponent(sourceId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-Admin-Key': adminKey },
+          body: JSON.stringify({
+            enabled,
+            discovery_status: enabled && currentStatus === 'DISABLED'
+              ? 'ACTIVE'
+              : (enabled ? currentStatus : 'DISABLED'),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          document.getElementById('sync-status').textContent = result.error || 'Source update failed.';
+          return;
+        }
+        renderAdminView();
+      });
+    });
+
+    document.querySelectorAll('.btn-inspect-source').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const sourceId = button.dataset.source;
+        const response = await fetch(`${API_BASE}/sources/${encodeURIComponent(sourceId)}`);
+        const result = await response.json();
+        document.getElementById('sync-status').textContent = response.ok
+          ? `${result.source.name}: ${result.source.opportunity_count || 0} records, lifecycle ${result.source.discovery_status}, role ${result.source.source_role}.`
+          : (result.error || 'Inspection failed.');
+      });
+    });
+
+    if (adminKey) {
+      const historyResponse = await fetch(`${API_BASE}/admin/sync-runs`, {
+        headers: { 'X-Admin-Key': adminKey },
+      });
+      if (historyResponse.ok) {
+        const history = await historyResponse.json();
+        document.getElementById('admin-sync-history').innerHTML = `
+          <div class="search-card">
+            <h3 style="margin-bottom:14px;">Recent Synchronization History</h3>
+            ${(history.sync_runs || []).slice(0, 10).map((run) => `
+              <div style="padding:8px 0;border-bottom:1px solid var(--surface-border);font-size:0.84rem;">
+                <strong>${escapeHtml(run.source_id)}</strong> — ${escapeHtml(run.status)}
+                • found ${Number(run.records_found || 0)}
+                • created ${Number(run.records_created || 0)}
+                • updated ${Number(run.records_updated || 0)}
+                • rejected ${Number(run.records_rejected || 0)}
+                • errors ${Number(run.errors_count || 0)}
+              </div>
+            `).join('') || '<p>No synchronization runs recorded.</p>'}
+          </div>
+        `;
+      }
+    }
   } catch (err) {
     document.getElementById('admin-sources-list').innerHTML = `Failed to load admin metrics.`;
   }

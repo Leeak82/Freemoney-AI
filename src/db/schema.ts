@@ -67,11 +67,19 @@ CREATE TABLE IF NOT EXISTS sources (
     api_url TEXT,
     documentation_url TEXT,
     authentication_type VARCHAR(50) DEFAULT 'NONE', -- NONE, API_KEY, OAUTH, OTHER
+    source_role VARCHAR(50) DEFAULT 'RESOURCE',
+    jurisdiction_scope VARCHAR(50) DEFAULT 'UNKNOWN',
     trust_level VARCHAR(50) DEFAULT 'COMMUNITY', -- OFFICIAL_GOVERNMENT, OFFICIAL_ORGANIZATION, VERIFIED_PARTNER, COMMUNITY, UNKNOWN
     discovery_status VARCHAR(50) DEFAULT 'DISCOVERED', -- DISCOVERED, VERIFIED, ACTIVE, REJECTED, DISABLED
     enabled BOOLEAN DEFAULT TRUE,
     official BOOLEAN DEFAULT FALSE,
     priority INTEGER DEFAULT 10,
+    sync_frequency VARCHAR(50),
+    request_timeout_ms INTEGER DEFAULT 10000,
+    max_retries INTEGER DEFAULT 3,
+    page_size INTEGER DEFAULT 50,
+    max_pages INTEGER DEFAULT 10,
+    rate_limit_per_minute INTEGER,
     last_sync_at TIMESTAMPTZ,
     last_success_at TIMESTAMPTZ,
     last_error_at TIMESTAMPTZ,
@@ -102,6 +110,8 @@ CREATE TABLE IF NOT EXISTS opportunities (
     source_id VARCHAR(100) NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
     source_url TEXT NOT NULL,
     application_url TEXT,
+    application_url_type VARCHAR(50) DEFAULT 'UNKNOWN',
+    application_url_verified BOOLEAN DEFAULT FALSE,
     category VARCHAR(100) NOT NULL,
     subcategories TEXT[] DEFAULT ARRAY[]::TEXT[],
     program_type VARCHAR(50) DEFAULT 'GRANT',
@@ -122,11 +132,14 @@ CREATE TABLE IF NOT EXISTS opportunities (
     required_documents TEXT[] DEFAULT ARRAY[]::TEXT[],
     contact_information JSONB DEFAULT '{}'::jsonb,
     official_source BOOLEAN DEFAULT FALSE,
+    source_provider VARCHAR(255),
+    source_metadata JSONB DEFAULT '{}'::jsonb,
     raw_source_identifier TEXT NOT NULL,
     source_opportunity_id VARCHAR(255) NOT NULL,
     dedup_fingerprint VARCHAR(255) NOT NULL,
     last_verified_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     retrieved_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'UNKNOWN',
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -188,6 +201,9 @@ CREATE TABLE IF NOT EXISTS application_links (
     portal_name VARCHAR(255) NOT NULL,
     url TEXT NOT NULL,
     portal_type VARCHAR(50) DEFAULT 'OFFICIAL_PORTAL',
+    official BOOLEAN DEFAULT FALSE,
+    verified_at TIMESTAMPTZ,
+    source_id VARCHAR(100) REFERENCES sources(id) ON DELETE RESTRICT,
     is_direct_apply BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -237,6 +253,22 @@ CREATE TABLE IF NOT EXISTS opportunity_funding_purposes (
     source_verified BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(opportunity_id, funding_purpose)
+);
+
+-- Every canonical opportunity may retain additional source records discovered
+-- through fallback fingerprint deduplication.
+CREATE TABLE IF NOT EXISTS opportunity_source_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    source_id VARCHAR(100) NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    source_opportunity_id VARCHAR(255) NOT NULL,
+    source_url TEXT NOT NULL,
+    source_provider VARCHAR(255) NOT NULL,
+    official_source BOOLEAN DEFAULT FALSE,
+    retrieved_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_verified_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    source_metadata JSONB DEFAULT '{}'::jsonb,
+    UNIQUE(source_id, source_opportunity_id)
 );
 
 -- Business identity and optional matching profile.
@@ -424,10 +456,17 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     status VARCHAR(50) DEFAULT 'RUNNING', -- RUNNING, SUCCESS, FAILED, PARTIAL
     started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    request_parameters JSONB DEFAULT '{}'::jsonb,
+    records_found INTEGER DEFAULT 0,
+    records_created INTEGER DEFAULT 0,
     records_fetched INTEGER DEFAULT 0,
     records_inserted INTEGER DEFAULT 0,
     records_updated INTEGER DEFAULT 0,
+    records_deactivated INTEGER DEFAULT 0,
+    records_rejected INTEGER DEFAULT 0,
     records_skipped INTEGER DEFAULT 0,
+    errors_count INTEGER DEFAULT 0,
     error_message TEXT
 );
 
@@ -442,22 +481,90 @@ CREATE TABLE IF NOT EXISTS sync_errors (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Additive Phase 2 migration for existing installations.
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS source_role VARCHAR(50) DEFAULT 'RESOURCE';
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS jurisdiction_scope VARCHAR(50) DEFAULT 'UNKNOWN';
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS sync_frequency VARCHAR(50);
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS request_timeout_ms INTEGER DEFAULT 10000;
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 3;
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS page_size INTEGER DEFAULT 50;
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS max_pages INTEGER DEFAULT 10;
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS rate_limit_per_minute INTEGER;
+
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS application_url_type VARCHAR(50) DEFAULT 'UNKNOWN';
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS application_url_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS source_provider VARCHAR(255);
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS source_metadata JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'UNKNOWN';
+ALTER TABLE application_links ADD COLUMN IF NOT EXISTS official BOOLEAN DEFAULT FALSE;
+ALTER TABLE application_links ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+ALTER TABLE application_links ADD COLUMN IF NOT EXISTS source_id VARCHAR(100) REFERENCES sources(id) ON DELETE RESTRICT;
+UPDATE opportunities
+SET source_provider = COALESCE(source_provider, provider_name),
+    status = CASE
+      WHEN status <> 'UNKNOWN' THEN status
+      WHEN deadline IS NOT NULL AND deadline < CURRENT_TIMESTAMP THEN 'EXPIRED'
+      WHEN active THEN 'ACTIVE'
+      ELSE 'CLOSED'
+    END
+WHERE source_provider IS NULL OR status = 'UNKNOWN';
+
+ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS request_parameters JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS records_found INTEGER DEFAULT 0;
+ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS records_created INTEGER DEFAULT 0;
+ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS records_deactivated INTEGER DEFAULT 0;
+ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS records_rejected INTEGER DEFAULT 0;
+ALTER TABLE sync_runs ADD COLUMN IF NOT EXISTS errors_count INTEGER DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS source_candidates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    catalog_source_id VARCHAR(100) NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    candidate_url TEXT NOT NULL,
+    documentation_url TEXT,
+    authentication_type VARCHAR(50) DEFAULT 'OTHER',
+    discovery_category VARCHAR(50) DEFAULT 'OTHER',
+    trust_level VARCHAR(50) DEFAULT 'UNKNOWN',
+    lifecycle_status VARCHAR(50) DEFAULT 'DISCOVERED',
+    relevance_score INTEGER DEFAULT 0,
+    https BOOLEAN DEFAULT TRUE,
+    cors VARCHAR(50),
+    review_notes TEXT,
+    discovered_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMPTZ,
+    verified_at TIMESTAMPTZ,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    UNIQUE(catalog_source_id, candidate_url)
+);
+
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_opportunities_source ON opportunities(source_id);
 CREATE INDEX IF NOT EXISTS idx_opportunities_category ON opportunities(category);
 CREATE INDEX IF NOT EXISTS idx_opportunities_active ON opportunities(active);
 CREATE INDEX IF NOT EXISTS idx_opportunities_deadline ON opportunities(deadline);
+CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities(status);
+CREATE INDEX IF NOT EXISTS idx_opportunities_program_type ON opportunities(program_type);
 CREATE INDEX IF NOT EXISTS idx_opportunities_fingerprint ON opportunities(dedup_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_opportunities_location_scope ON opportunities(location_scope);
+CREATE INDEX IF NOT EXISTS idx_opportunities_states_gin ON opportunities USING GIN(states);
+CREATE INDEX IF NOT EXISTS idx_opportunities_counties_gin ON opportunities USING GIN(counties);
+CREATE INDEX IF NOT EXISTS idx_opportunities_cities_gin ON opportunities USING GIN(cities);
+CREATE INDEX IF NOT EXISTS idx_opportunities_zip_codes_gin ON opportunities USING GIN(zip_codes);
 CREATE INDEX IF NOT EXISTS idx_opportunity_locations_state ON opportunity_locations(state);
 CREATE INDEX IF NOT EXISTS idx_opportunity_locations_zip ON opportunity_locations(zip_code);
 CREATE INDEX IF NOT EXISTS idx_opportunity_locations_hierarchy ON opportunity_locations(country_code, state, county, city, zip_code);
 CREATE INDEX IF NOT EXISTS idx_opportunity_audiences_audience ON opportunity_audiences(audience);
 CREATE INDEX IF NOT EXISTS idx_opportunity_funding_purposes_purpose ON opportunity_funding_purposes(funding_purpose);
+CREATE INDEX IF NOT EXISTS idx_opportunity_source_records_opportunity ON opportunity_source_records(opportunity_id);
 CREATE INDEX IF NOT EXISTS idx_business_profiles_user ON business_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_business_profiles_location ON business_profiles(country, state, county, city, postal_code);
+CREATE INDEX IF NOT EXISTS idx_business_profiles_stage ON business_profiles(business_stage);
 CREATE INDEX IF NOT EXISTS idx_business_requirements_location ON business_requirements(country_code, state, county, city);
+CREATE INDEX IF NOT EXISTS idx_source_candidates_status ON source_candidates(lifecycle_status, discovery_category);
 CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_application_links_opportunity_url ON application_links(opportunity_id, url);
 CREATE INDEX IF NOT EXISTS idx_sources_trust ON sources(trust_level, enabled);
 `;

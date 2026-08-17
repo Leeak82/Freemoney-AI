@@ -26,9 +26,13 @@ export class TreasuryFiscalDataSource implements IOpportunitySource {
       apiUrl: this.apiUrl,
       documentationUrl: 'https://fiscaldata.treasury.gov/api-documentation/',
       authType: 'NONE',
+      sourceRole: 'OPEN_DATA',
+      jurisdictionScope: 'COUNTRY',
       trustLevel: 'OFFICIAL_GOVERNMENT',
       official: true,
       priority: 80,
+      defaultPageSize: 100,
+      maxPages: 1,
     };
   }
 
@@ -64,6 +68,9 @@ export class TreasuryFiscalDataSource implements IOpportunitySource {
     return {
       sourceId: 'treasury-fiscal-data',
       totalHits: 0,
+      startRecord: 0,
+      nextStartRecord: null,
+      hasMore: false,
       items: [],
     };
   }

@@ -21,13 +21,19 @@ export class OpportunityValidator {
     if (!opp.source_opportunity_id || typeof opp.source_opportunity_id !== 'string') {
       errors.push('Missing source_opportunity_id');
     }
+    if (!opp.source_provider && !opp.provider_name) {
+      errors.push('Missing source provider provenance');
+    }
 
     // 3. Invalid URLs
     if (opp.source_url && !this.isValidUrl(opp.source_url)) {
       errors.push(`Invalid source_url: ${opp.source_url}`);
     }
     if (opp.application_url && !this.isValidUrl(opp.application_url)) {
-      warnings.push(`Suspicious application_url format: ${opp.application_url}`);
+      errors.push(`Invalid application_url: ${opp.application_url}`);
+    }
+    if (opp.application_url_verified && !opp.application_url) {
+      errors.push('Application URL cannot be verified when no application URL is present');
     }
 
     // 4. Invalid or Inconsistent Amounts
@@ -62,6 +68,22 @@ export class OpportunityValidator {
     // 6. Missing Provenance
     if (!opp.retrieved_at || !opp.last_verified_at) {
       warnings.push('Opportunity lacks full timestamp verification metadata');
+    }
+    if (!opp.description || String(opp.description).trim().length === 0) {
+      warnings.push('Opportunity description is missing from the source');
+    }
+    if (!opp.location_scope || opp.location_scope === 'UNKNOWN') {
+      warnings.push('Opportunity geographic scope is unknown and requires verification');
+    }
+    if (
+      opp.status === 'ACTIVE' &&
+      opp.deadline &&
+      new Date(opp.deadline).getTime() < Date.now()
+    ) {
+      errors.push('Expired opportunity cannot have ACTIVE status');
+    }
+    if (opp.status && opp.active !== (opp.status === 'ACTIVE')) {
+      errors.push('Opportunity active flag contradicts normalized status');
     }
 
     return {
