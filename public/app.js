@@ -6,6 +6,7 @@ const state = {
   categories: [],
   selectedCategories: [],
   intent: null,
+  naturalQuery: '',
   searchParams: {
     keyword: '',
     state: '',
@@ -177,6 +178,15 @@ function renderHomeView() {
       </div>
     </section>
 
+    <div class="search-card" style="margin-bottom:20px;">
+      <div class="input-label" style="margin-bottom:8px;">Describe what's going on</div>
+      <p style="color:var(--text-muted);margin:0 0 12px;">Use normal language. FreeMoney-AI will turn it into conservative search filters and show what it detected.</p>
+      <textarea id="input-natural-query" class="form-control" rows="3" placeholder="Example: I'm behind on rent in Pierce County and need help now.">${escapeHtml(state.naturalQuery)}</textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+        <button id="btn-natural-search" class="btn btn-primary">Find Help From My Situation</button>
+      </div>
+    </div>
+
     ${state.intent ? `
     <div class="search-card">
       <div class="input-label" style="margin-bottom: 12px;">1. Select one or more categories</div>
@@ -241,6 +251,11 @@ function renderHomeView() {
     });
   });
 
+  document.getElementById('btn-natural-search')?.addEventListener('click', () => {
+    state.naturalQuery = document.getElementById('input-natural-query').value.trim();
+    executeNaturalLanguageSearch();
+  });
+
   if (!state.intent) return;
 
   // Attach Category Selection
@@ -272,6 +287,48 @@ function renderHomeView() {
 // ----------------------------------------------------------------
 // Execute Search & Render Cards
 // ----------------------------------------------------------------
+async function executeNaturalLanguageSearch() {
+  const container = document.getElementById('results-container');
+  if (!container || !state.naturalQuery) return;
+
+  container.innerHTML = `<div style="text-align:center;padding:50px 0;color:var(--text-muted);">Understanding your situation and searching verified programs...</div>`;
+  try {
+    const payload = {
+      text: state.naturalQuery,
+      intent: state.intent || undefined,
+      user_profile: state.userProfile || undefined,
+      business_profile: state.businessProfile || undefined,
+    };
+    const res = await fetch(`${API_BASE}/search/natural-language`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.details || data.error || 'Search failed');
+    state.intent = data.interpretation?.search?.intent || state.intent;
+    renderOpportunityCards(data.results || [], container);
+    const detected = data.interpretation?.detected || {};
+    const location = detected.location || {};
+    const signals = [
+      ...(detected.categories || []).map((x) => `Category: ${x.replace(/-/g, ' ')}`),
+      location.city ? `City: ${location.city}` : null,
+      location.county ? `County: ${location.county}` : null,
+      location.state ? `State: ${location.state}` : null,
+      location.zip ? `ZIP: ${location.zip}` : null,
+      detected.urgency === 'URGENT' ? 'Urgent need detected' : null,
+    ].filter(Boolean);
+    container.insertAdjacentHTML('afterbegin', `
+      <div class="search-card" style="margin-bottom:18px;">
+        <strong>What FreeMoney-AI understood</strong>
+        <div style="color:var(--text-muted);margin-top:8px;">${signals.length ? signals.map(escapeHtml).join(' • ') : 'Broad assistance search'}</div>
+        <div style="color:var(--text-dim);font-size:.84rem;margin-top:8px;">This interpretation narrows the search; it does not claim you qualify.</div>
+      </div>`);
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--danger);text-align:center;padding:30px;">${escapeHtml(err.message || 'Natural-language search failed.')}</div>`;
+  }
+}
+
 async function executeSearch() {
   const container = document.getElementById('results-container');
   if (!container) return;

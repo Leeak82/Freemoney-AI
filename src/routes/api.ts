@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../db/index.js';
 import { searchEngine } from '../search/search-engine.js';
+import { naturalLanguageSearchParser } from '../search/natural-language-parser.js';
 import { sourceRegistry } from '../sources/registry.js';
 import { syncEngine } from '../sources/sync-engine.js';
 import { profileService } from '../services/profile-service.js';
@@ -140,6 +141,34 @@ apiRouter.post('/search', async (req: Request, res: Response) => {
     res.json(searchResult);
   } catch (err: any) {
     res.status(500).json({ error: 'Search execution failed', details: err.message });
+  }
+});
+
+
+apiRouter.post('/search/natural-language', async (req: Request, res: Response) => {
+  try {
+    const text = String(req.body?.text || req.body?.query || '').trim();
+    if (!text) {
+      res.status(400).json({ error: 'Natural-language search text is required.' });
+      return;
+    }
+
+    const interpretation = naturalLanguageSearchParser.parse(text, req.body?.intent);
+    const searchQuery = {
+      ...interpretation.search,
+      user_profile: interpretation.search.intent === 'PERSONAL_ASSISTANCE'
+        ? { ...(interpretation.inferred_profile || {}), ...(req.body?.user_profile || {}) }
+        : undefined,
+      business_profile: interpretation.search.intent === 'BUSINESS_ASSISTANCE'
+        ? { ...(interpretation.inferred_business_profile || {}), ...(req.body?.business_profile || {}) }
+        : undefined,
+      limit: Number.isFinite(Number(req.body?.limit)) ? Math.min(Number(req.body.limit), 100) : 20,
+      offset: Number.isFinite(Number(req.body?.offset)) ? Math.max(Number(req.body.offset), 0) : 0,
+    };
+    const searchResult = await searchEngine.search(searchQuery);
+    res.json({ interpretation, ...searchResult });
+  } catch (err: any) {
+    res.status(400).json({ error: 'Natural-language search failed', details: err.message });
   }
 });
 

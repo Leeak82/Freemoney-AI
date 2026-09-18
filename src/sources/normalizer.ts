@@ -36,49 +36,26 @@ export class OpportunityNormalizer {
    * Infer primary category slug based on title, description, and agency keywords
    */
   public static inferCategory(title: string, agency: string, desc?: string): string {
-    const text = `${title} ${agency} ${desc || ''}`.toLowerCase();
+    const classify = (value: string): string | null => {
+      const text = value.toLowerCase();
+      if (/\b(housing|rent(?:al)?|homeless(?:ness)?|shelter|hud)\b/.test(text)) return 'rent-housing';
+      if (/\b(utility|utilities|energy|liheap|water|weatherization)\b/.test(text)) return 'utilities';
+      if (/\b(food|nutrition|snap|wic|hunger)\b/.test(text)) return 'food';
+      if (/\b(veteran|veterans|military|armed forces)\b|\bva-/.test(text)) return 'veterans';
+      if (/\b(disab\w*|assistive|rehabilitation|special needs|ssi|ssdi)\b|social security disability/.test(text)) return 'disability';
+      if (/\b(scholarship|fellowship|education|tuition|stem)\b/.test(text)) return 'education-scholarships';
+      if (/\b(health|medical|nih|cdc|biomedical|nursing)\b/.test(text)) return 'medical-assistance';
+      if (/\b(child|children|family|youth|tanf|infant)\b/.test(text)) return 'child-family';
+      if (/\b(disaster|fema|flood|hurricane|emergency)\b|funeral assistance/.test(text)) return 'emergency-assistance';
+      if (/\b(small business|sbir|sttr|sba|entrepreneur\w*)\b/.test(text)) return 'small-business';
+      if (/\b(transportation|transit|highway|aviation)\b|\bdot\b/.test(text)) return 'transportation';
+      if (/\b(tax|eitc|irs)\b/.test(text)) return 'tax-credits';
+      if (/\b(debt|counseling|credit)\b/.test(text)) return 'debt-financial';
+      return null;
+    };
 
-    if (text.includes('housing') || text.includes('rent') || text.includes('homeless') || text.includes('shelter') || text.includes('hud')) {
-      return 'rent-housing';
-    }
-    if (text.includes('utility') || text.includes('energy') || text.includes('liheap') || text.includes('water') || text.includes('weatherization')) {
-      return 'utilities';
-    }
-    if (text.includes('food') || text.includes('nutrition') || text.includes('snap') || text.includes('wic') || text.includes('hunger')) {
-      return 'food';
-    }
-    if (text.includes('veteran') || text.includes('military') || text.includes('va-') || text.includes('armed forces')) {
-      return 'veterans';
-    }
-    if (text.includes('disab') || text.includes('assistive') || text.includes('rehabilitation') || text.includes('special needs')) {
-      return 'disability';
-    }
-    if (text.includes('scholarship') || text.includes('fellowship') || text.includes('education') || text.includes('tuition') || text.includes('stem')) {
-      return 'education-scholarships';
-    }
-    if (text.includes('health') || text.includes('medical') || text.includes('nih') || text.includes('cdc') || text.includes('biomedical') || text.includes('nursing')) {
-      return 'medical-assistance';
-    }
-    if (text.includes('child') || text.includes('family') || text.includes('youth') || text.includes('tanf') || text.includes('infant')) {
-      return 'child-family';
-    }
-    if (text.includes('disaster') || text.includes('fema') || text.includes('flood') || text.includes('hurricane') || text.includes('emergency')) {
-      return 'emergency-assistance';
-    }
-    if (text.includes('small business') || text.includes('sbir') || text.includes('sttr') || text.includes('sba') || text.includes('entrepreneur')) {
-      return 'small-business';
-    }
-    if (text.includes('transportation') || text.includes('transit') || text.includes('dot ') || text.includes('highway') || text.includes('aviation')) {
-      return 'transportation';
-    }
-    if (text.includes('tax') || text.includes('eitc') || text.includes('irs')) {
-      return 'tax-credits';
-    }
-    if (text.includes('debt') || text.includes('counseling') || text.includes('credit')) {
-      return 'debt-financial';
-    }
-
-    return 'grants';
+    // Strong title/provider signals beat incidental words buried in long descriptions.
+    return classify(`${title} ${agency}`) || classify(desc || '') || 'grants';
   }
 
   public static inferAudiences(
@@ -145,7 +122,10 @@ export class OpportunityNormalizer {
     ).trim();
     const deadline = detail?.deadline ?? this.parseDate(raw.closeDate);
     const description = detail?.description || raw.description || '';
-    const category = this.inferCategory(title, provider, description);
+    const inferredCategory = this.inferCategory(title, provider, description);
+    const category = detail?.programType === 'BENEFIT' && inferredCategory === 'grants'
+      ? 'other'
+      : inferredCategory;
     const sourceUrl = detail?.sourceUrl || raw.sourceUrl || '';
     const applicationUrl = detail?.applicationUrl || null;
     const locationScope: LocationScope = detail?.locationScope || 'UNKNOWN';

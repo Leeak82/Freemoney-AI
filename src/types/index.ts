@@ -322,6 +322,7 @@ export interface SearchQuery {
   source_id?: string;
   official_only?: boolean;
   active_only?: boolean;
+  include_unknown_status?: boolean;
   user_profile?: Partial<UserProfile>;
   business_profile?: Partial<BusinessProfile>;
   limit?: number;

@@ -41,7 +41,11 @@ export class SearchEngine {
       `s.discovery_status = 'ACTIVE'`,
     ];
     if (sq.active_only !== false) {
-      conditions.push(`o.status = 'ACTIVE'`, `o.active = TRUE`);
+      if (sq.include_unknown_status) {
+        conditions.push(`((o.status = 'ACTIVE' AND o.active = TRUE) OR o.status = 'UNKNOWN')`);
+      } else {
+        conditions.push(`o.status = 'ACTIVE'`, `o.active = TRUE`);
+      }
     }
     const params: any[] = [];
     let idx = 1;
