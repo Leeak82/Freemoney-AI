@@ -1,8 +1,6 @@
 export const SCHEMA_SQL = `
 -- PostgreSQL & Supabase Compatible Schema for FreeMoney-AI
 
--- Enable UUID extension if available
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. Users Table
 CREATE TABLE IF NOT EXISTS users (

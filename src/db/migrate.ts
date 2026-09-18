@@ -1,10 +1,10 @@
-import { query, closePool } from './index.js';
+import { execSql, closePool } from './index.js';
 import { SCHEMA_SQL } from './schema.js';
 
 export async function runMigrations() {
   console.log('Running database migrations...');
   try {
-    await query(SCHEMA_SQL);
+    await execSql(SCHEMA_SQL);
     console.log('Database migrations completed successfully.');
   } catch (err) {
     console.error('Migration failed:', err);
@@ -12,7 +12,6 @@ export async function runMigrations() {
   }
 }
 
-// Auto-run if invoked directly via CLI
 if (process.argv[1]?.endsWith('migrate.ts') || process.argv[1]?.endsWith('migrate.js')) {
   runMigrations()
     .then(async () => {
