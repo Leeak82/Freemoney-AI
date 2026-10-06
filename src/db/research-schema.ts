@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS program_availability (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   CHECK (availability_state IN ('ACCEPTING_APPLICATIONS','APPLICATION_WINDOW_SCHEDULED','WAITLIST_OPEN','WAITLIST_CLOSED','TEMPORARILY_PAUSED','FUNDING_EXHAUSTED','CLOSED','EXPIRED','STATUS_NOT_CONFIRMED')),
   FOREIGN KEY (evidence_record_id, opportunity_id)
-    REFERENCES evidence_records(id, opportunity_id) ON DELETE SET NULL
+    REFERENCES evidence_records(id, opportunity_id) ON DELETE SET NULL (evidence_record_id)
 );
 
 CREATE TABLE IF NOT EXISTS researched_eligibility_rules (
