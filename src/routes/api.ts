@@ -310,23 +310,23 @@ apiRouter.post('/businesses', requireUserSession, async (req: Request, res: Resp
   }
 });
 
-apiRouter.get('/businesses/:id', async (req: Request, res: Response) => {
+apiRouter.get('/businesses/:id', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const business = await businessService.getBusiness(req.params.id);
+    const business = await businessService.getBusiness(req.params.id, req.actor!.userId);
     if (!business) {
       res.status(404).json({ error: 'Business not found' });
       return;
     }
-    const checklists = await businessService.getChecklists(req.params.id);
+    const checklists = await businessService.getChecklists(req.params.id, req.actor!.userId);
     res.json({ business, checklists });
   } catch (err: any) {
     res.status(400).json({ error: 'Failed to fetch business', details: err.message });
   }
 });
 
-apiRouter.get('/businesses/:id/checklists', async (req: Request, res: Response) => {
+apiRouter.get('/businesses/:id/checklists', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const checklists = await businessService.getChecklists(req.params.id);
+    const checklists = await businessService.getChecklists(req.params.id, req.actor!.userId);
     res.json({ checklists });
   } catch (err: any) {
     res.status(400).json({ error: 'Failed to fetch checklists', details: err.message });
@@ -335,6 +335,7 @@ apiRouter.get('/businesses/:id/checklists', async (req: Request, res: Response) 
 
 apiRouter.patch(
   '/businesses/:businessId/checklists/items/:itemId',
+  requireUserSession,
   async (req: Request, res: Response) => {
     try {
       const status = z
@@ -343,7 +344,8 @@ apiRouter.patch(
       const item = await businessService.updateChecklistItem(
         req.params.businessId,
         req.params.itemId,
-        status
+        status,
+        req.actor!.userId
       );
       res.json({ success: true, item });
     } catch (err: any) {
@@ -403,10 +405,10 @@ apiRouter.post('/business/requirements', async (req: Request, res: Response) => 
   }
 });
 
-apiRouter.post('/business/search', async (req: Request, res: Response) => {
+apiRouter.post('/business/search', requireUserSession, async (req: Request, res: Response) => {
   try {
     const businessId = z.string().uuid().parse(req.body.business_id);
-    const profile = await businessService.getBusiness(businessId);
+    const profile = await businessService.getBusiness(businessId, req.actor!.userId);
     if (!profile) {
       res.status(404).json({ error: 'Business not found' });
       return;
