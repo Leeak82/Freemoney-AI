@@ -48,7 +48,7 @@ const CATEGORY_RULES: Array<[string, RegExp]> = [
   ['medical-assistance', /\b(medical|health care|healthcare|medicaid|prescription|dental|vision|copay)\b/i],
   ['child-family', /\b(child ?care|daycare|single (?:mom|mother|dad|father|parent)|tanf|family assistance)\b/i],
   ['emergency-assistance', /\b(emergency|urgent|crisis|asap|today|now|past due|shut ?off|disconnect(?:ion)?|eviction|hotel voucher|motel voucher|emergency lodging|homeless|unsheltered)\b/i],
-  ['basic-needs', /\b(shower(?:s)?|hygiene|hygiene kit|clothes|clothing|warm clothes|coat|jacket|blanket|sock(?:s)?|glove(?:s)?|giveaway|give away|free supplies|basic needs)\b/i],
+  ['basic-needs', /\b(shower(?:s)?|hygiene|hygiene kit|clothes|clothing|warm clothes|coat|jacket|blanket|sock(?:s)?|glove(?:s)?|giveaway(?:s)?|give away|free supplies|basic needs)\b/i],
   ['debt-financial', /\b(debt|credit card|foreclosure|financial counseling|loan relief|behind on bills)\b/i],
   ['tax-credits', /\b(tax credit|tax refund|eitc|earned income|child tax credit|vita)\b/i],
   ['disaster-assistance', /\b(disaster|flood|wildfire|earthquake|hurricane|fema)\b/i],
