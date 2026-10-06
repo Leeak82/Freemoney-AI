@@ -437,9 +437,9 @@ apiRouter.get('/applications', requireUserSession, async (req: Request, res: Res
   }
 });
 
-apiRouter.get('/applications/:id', async (req: Request, res: Response) => {
+apiRouter.get('/applications/:id', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const app = await applicationService.getApplicationById(req.params.id);
+    const app = await applicationService.getApplicationById(req.params.id, req.actor!.userId);
     if (!app) {
       res.status(404).json({ error: 'Application not found' });
       return;
@@ -466,9 +466,9 @@ apiRouter.post('/applications', requireUserSession, async (req: Request, res: Re
   }
 });
 
-apiRouter.patch('/applications/:id', async (req: Request, res: Response) => {
+apiRouter.patch('/applications/:id', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const updated = await applicationService.updateApplication(req.params.id, req.body);
+    const updated = await applicationService.updateApplication(req.params.id, req.actor!.userId, req.body);
     res.json({ success: true, application: updated });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update application', details: err.message });
