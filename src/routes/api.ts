@@ -7,6 +7,7 @@ import { syncEngine } from '../sources/sync-engine.js';
 import { profileService } from '../services/profile-service.js';
 import { applicationService } from '../services/application-service.js';
 import { requireAdminAuth } from '../middleware/auth.js';
+import { requireUserSession } from '../middleware/user-session.js';
 import { PublicApisDiscoveryParser } from '../sources/discovery.js';
 import { businessService } from '../services/business-service.js';
 import { businessProviderRegistry } from '../business/providers.js';
@@ -264,9 +265,9 @@ apiRouter.get('/sources/:id', async (req: Request, res: Response) => {
 // ==========================================
 // 4. User Profile Endpoints
 // ==========================================
-apiRouter.get('/profile', async (req: Request, res: Response) => {
+apiRouter.get('/profile', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || (req.query.user_id as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const profile = await profileService.getProfile(userId);
     res.json({ profile: profile || null });
   } catch (err: any) {
@@ -274,9 +275,9 @@ apiRouter.get('/profile', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/profile', async (req: Request, res: Response) => {
+apiRouter.post('/profile', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = req.body.user_id || (req.headers['x-user-id'] as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const profile = await profileService.upsertProfile(userId, req.body);
     res.json({ success: true, profile });
   } catch (err: any) {
@@ -287,12 +288,9 @@ apiRouter.post('/profile', async (req: Request, res: Response) => {
 // ==========================================
 // 5. Business Startup, Formation & Requirements
 // ==========================================
-apiRouter.get('/businesses', async (req: Request, res: Response) => {
+apiRouter.get('/businesses', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId =
-      (req.headers['x-user-id'] as string) ||
-      (req.query.user_id as string) ||
-      '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const businesses = await businessService.getBusinesses(userId);
     res.json({ businesses });
   } catch (err: any) {
@@ -300,12 +298,9 @@ apiRouter.get('/businesses', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/businesses', async (req: Request, res: Response) => {
+apiRouter.post('/businesses', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId =
-      req.body.user_id ||
-      (req.headers['x-user-id'] as string) ||
-      '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const parsed = businessProfileSchema.parse(req.body);
     const result = await businessService.upsertBusiness(userId, parsed);
     res.status(201).json({ success: true, ...result });
@@ -432,9 +427,9 @@ apiRouter.post('/business/search', async (req: Request, res: Response) => {
 // ==========================================
 // 6. Application Tracking Endpoints
 // ==========================================
-apiRouter.get('/applications', async (req: Request, res: Response) => {
+apiRouter.get('/applications', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || (req.query.user_id as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const apps = await applicationService.getUserApplications(userId);
     res.json({ applications: apps });
   } catch (err: any) {
@@ -455,9 +450,9 @@ apiRouter.get('/applications/:id', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/applications', async (req: Request, res: Response) => {
+apiRouter.post('/applications', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = req.body.user_id || (req.headers['x-user-id'] as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const app = await applicationService.createApplication({
       userId,
       opportunityId: req.body.opportunity_id,
