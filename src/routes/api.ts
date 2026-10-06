@@ -7,9 +7,11 @@ import { syncEngine } from '../sources/sync-engine.js';
 import { profileService } from '../services/profile-service.js';
 import { applicationService } from '../services/application-service.js';
 import { requireAdminAuth } from '../middleware/auth.js';
+import { requireUserSession } from '../middleware/user-session.js';
 import { PublicApisDiscoveryParser } from '../sources/discovery.js';
 import { businessService } from '../services/business-service.js';
 import { businessProviderRegistry } from '../business/providers.js';
+import { programResearchService } from '../research/research-service.js';
 import { z } from 'zod';
 
 export const apiRouter = Router();
@@ -179,9 +181,51 @@ apiRouter.get('/opportunities/:id', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Opportunity not found' });
       return;
     }
-    res.json(result);
+    const research = await programResearchService.getSnapshot(req.params.id);
+    res.json({
+      ...result,
+      research,
+      research_notice: research
+        ? 'Program-specific verified research is shown below. Unknown fields remain unknown until authoritative evidence is found.'
+        : 'Detailed program research has not yet been completed for this record. Do not treat missing fields as eligibility requirements.',
+    });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch opportunity detail', details: err.message });
+  }
+});
+
+apiRouter.post('/opportunities/:id/report-outdated', async (req: Request, res: Response) => {
+  try {
+    const input = z.object({
+      report_type: z.enum([
+        'PROGRAM_CLOSED',
+        'BROKEN_LINK',
+        'INCORRECT_PHONE',
+        'ELIGIBILITY_CHANGED',
+        'WAITLIST_CHANGED',
+        'APPLICATION_PROCESS_CHANGED',
+        'OTHER',
+      ]),
+      report_text: z.string().trim().max(2000).optional(),
+    }).parse(req.body || {});
+    const opportunity = await searchEngine.getOpportunityById(req.params.id);
+    if (!opportunity) {
+      res.status(404).json({ error: 'Opportunity not found' });
+      return;
+    }
+    const report = await programResearchService.reportOutdated(
+      req.params.id,
+      input.report_type,
+      input.report_text
+    );
+    res.status(202).json({
+      success: true,
+      report,
+      message: 'Report received. Existing verified information was not overwritten; this program is queued for re-verification.',
+    });
+  } catch (err: any) {
+    const details = err instanceof z.ZodError ? err.flatten() : err.message;
+    res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Failed to report program information', details });
   }
 });
 
@@ -221,9 +265,9 @@ apiRouter.get('/sources/:id', async (req: Request, res: Response) => {
 // ==========================================
 // 4. User Profile Endpoints
 // ==========================================
-apiRouter.get('/profile', async (req: Request, res: Response) => {
+apiRouter.get('/profile', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || (req.query.user_id as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const profile = await profileService.getProfile(userId);
     res.json({ profile: profile || null });
   } catch (err: any) {
@@ -231,9 +275,9 @@ apiRouter.get('/profile', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/profile', async (req: Request, res: Response) => {
+apiRouter.post('/profile', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = req.body.user_id || (req.headers['x-user-id'] as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const profile = await profileService.upsertProfile(userId, req.body);
     res.json({ success: true, profile });
   } catch (err: any) {
@@ -244,12 +288,9 @@ apiRouter.post('/profile', async (req: Request, res: Response) => {
 // ==========================================
 // 5. Business Startup, Formation & Requirements
 // ==========================================
-apiRouter.get('/businesses', async (req: Request, res: Response) => {
+apiRouter.get('/businesses', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId =
-      (req.headers['x-user-id'] as string) ||
-      (req.query.user_id as string) ||
-      '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const businesses = await businessService.getBusinesses(userId);
     res.json({ businesses });
   } catch (err: any) {
@@ -257,12 +298,9 @@ apiRouter.get('/businesses', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/businesses', async (req: Request, res: Response) => {
+apiRouter.post('/businesses', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId =
-      req.body.user_id ||
-      (req.headers['x-user-id'] as string) ||
-      '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const parsed = businessProfileSchema.parse(req.body);
     const result = await businessService.upsertBusiness(userId, parsed);
     res.status(201).json({ success: true, ...result });
@@ -272,23 +310,23 @@ apiRouter.post('/businesses', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/businesses/:id', async (req: Request, res: Response) => {
+apiRouter.get('/businesses/:id', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const business = await businessService.getBusiness(req.params.id);
+    const business = await businessService.getBusiness(req.params.id, req.actor!.userId);
     if (!business) {
       res.status(404).json({ error: 'Business not found' });
       return;
     }
-    const checklists = await businessService.getChecklists(req.params.id);
+    const checklists = await businessService.getChecklists(req.params.id, req.actor!.userId);
     res.json({ business, checklists });
   } catch (err: any) {
     res.status(400).json({ error: 'Failed to fetch business', details: err.message });
   }
 });
 
-apiRouter.get('/businesses/:id/checklists', async (req: Request, res: Response) => {
+apiRouter.get('/businesses/:id/checklists', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const checklists = await businessService.getChecklists(req.params.id);
+    const checklists = await businessService.getChecklists(req.params.id, req.actor!.userId);
     res.json({ checklists });
   } catch (err: any) {
     res.status(400).json({ error: 'Failed to fetch checklists', details: err.message });
@@ -297,6 +335,7 @@ apiRouter.get('/businesses/:id/checklists', async (req: Request, res: Response) 
 
 apiRouter.patch(
   '/businesses/:businessId/checklists/items/:itemId',
+  requireUserSession,
   async (req: Request, res: Response) => {
     try {
       const status = z
@@ -305,7 +344,8 @@ apiRouter.patch(
       const item = await businessService.updateChecklistItem(
         req.params.businessId,
         req.params.itemId,
-        status
+        status,
+        req.actor!.userId
       );
       res.json({ success: true, item });
     } catch (err: any) {
@@ -365,10 +405,10 @@ apiRouter.post('/business/requirements', async (req: Request, res: Response) => 
   }
 });
 
-apiRouter.post('/business/search', async (req: Request, res: Response) => {
+apiRouter.post('/business/search', requireUserSession, async (req: Request, res: Response) => {
   try {
     const businessId = z.string().uuid().parse(req.body.business_id);
-    const profile = await businessService.getBusiness(businessId);
+    const profile = await businessService.getBusiness(businessId, req.actor!.userId);
     if (!profile) {
       res.status(404).json({ error: 'Business not found' });
       return;
@@ -389,9 +429,9 @@ apiRouter.post('/business/search', async (req: Request, res: Response) => {
 // ==========================================
 // 6. Application Tracking Endpoints
 // ==========================================
-apiRouter.get('/applications', async (req: Request, res: Response) => {
+apiRouter.get('/applications', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || (req.query.user_id as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const apps = await applicationService.getUserApplications(userId);
     res.json({ applications: apps });
   } catch (err: any) {
@@ -399,9 +439,9 @@ apiRouter.get('/applications', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/applications/:id', async (req: Request, res: Response) => {
+apiRouter.get('/applications/:id', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const app = await applicationService.getApplicationById(req.params.id);
+    const app = await applicationService.getApplicationById(req.params.id, req.actor!.userId);
     if (!app) {
       res.status(404).json({ error: 'Application not found' });
       return;
@@ -412,9 +452,9 @@ apiRouter.get('/applications/:id', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/applications', async (req: Request, res: Response) => {
+apiRouter.post('/applications', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const userId = req.body.user_id || (req.headers['x-user-id'] as string) || '00000000-0000-4000-8000-000000000001';
+    const userId = req.actor!.userId;
     const app = await applicationService.createApplication({
       userId,
       opportunityId: req.body.opportunity_id,
@@ -428,9 +468,9 @@ apiRouter.post('/applications', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.patch('/applications/:id', async (req: Request, res: Response) => {
+apiRouter.patch('/applications/:id', requireUserSession, async (req: Request, res: Response) => {
   try {
-    const updated = await applicationService.updateApplication(req.params.id, req.body);
+    const updated = await applicationService.updateApplication(req.params.id, req.actor!.userId, req.body);
     res.json({ success: true, application: updated });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update application', details: err.message });
@@ -465,6 +505,18 @@ apiRouter.post('/sync/:source', requireAdminAuth, async (req: Request, res: Resp
   } catch (err: any) {
     const details = err instanceof z.ZodError ? err.flatten() : err.message;
     res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Synchronization failed', details });
+  }
+});
+
+apiRouter.get('/admin/research-queue', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const queue = await programResearchService.getResearchQueue(
+      Number.isFinite(limit) ? limit : 100
+    );
+    res.json({ queue });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch research queue', details: err.message });
   }
 });
 

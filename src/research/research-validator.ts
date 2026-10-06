@@ -1,0 +1,105 @@
+export type ResearchLifecycle = 'DISCOVERED'|'RESEARCHING'|'SOURCE_VERIFIED'|'REVIEW_REQUIRED'|'VERIFIED'|'STALE'|'CONFLICT'|'INACTIVE';
+export type AvailabilityState = 'ACCEPTING_APPLICATIONS'|'APPLICATION_WINDOW_SCHEDULED'|'WAITLIST_OPEN'|'WAITLIST_CLOSED'|'TEMPORARILY_PAUSED'|'FUNDING_EXHAUSTED'|'CLOSED'|'EXPIRED'|'STATUS_NOT_CONFIRMED';
+
+export interface EvidenceRef {
+  source_url: string;
+  source_organization: string;
+  authoritative: boolean;
+  retrieved_at: string | Date;
+  verified_at?: string | Date | null;
+}
+
+export interface ProgramResearchClaim {
+  lifecycle_status?: ResearchLifecycle;
+  availability_state?: AvailabilityState;
+  availability_evidence?: EvidenceRef | null;
+  application_url?: string | null;
+  application_url_evidence?: EvidenceRef | null;
+  eligibility_rules?: Array<{ description: string; evidence?: EvidenceRef | null }>;
+  documents?: Array<{ name: string; state: 'REQUIRED'|'REQUESTED_DURING_APPLICATION'|'MAY_BE_REQUESTED'|'NOT_CONFIRMED'; evidence?: EvidenceRef | null }>;
+  benefit_amount?: unknown;
+  benefit_amount_evidence?: EvidenceRef | null;
+  deadline?: string | Date | null;
+  deadline_evidence?: EvidenceRef | null;
+  phone?: string | null;
+  phone_evidence?: EvidenceRef | null;
+  geography?: unknown;
+  geography_evidence?: EvidenceRef | null;
+}
+
+export interface ResearchValidationResult { valid: boolean; errors: string[]; warnings: string[]; }
+
+const OPEN_AVAILABILITY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function hasAuthoritativeEvidence(e?: EvidenceRef | null): boolean {
+  return Boolean(e?.authoritative && e.source_url && e.source_organization && e.retrieved_at);
+}
+
+function validateOpenAvailabilityEvidence(
+  evidence: EvidenceRef | null | undefined,
+  now: Date
+): string[] {
+  const errors: string[] = [];
+  if (!hasAuthoritativeEvidence(evidence)) {
+    errors.push('Open/accepting availability requires authoritative evidence');
+  }
+  if (!evidence?.verified_at) {
+    errors.push('Open/accepting availability requires a verification timestamp');
+    return errors;
+  }
+
+  const verifiedAtMs = new Date(evidence.verified_at).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(verifiedAtMs)) {
+    errors.push('Open/accepting availability verification timestamp is invalid');
+    return errors;
+  }
+  if (verifiedAtMs > nowMs) {
+    errors.push('Open/accepting availability verification timestamp cannot be in the future');
+    return errors;
+  }
+  if (nowMs - verifiedAtMs > OPEN_AVAILABILITY_MAX_AGE_MS) {
+    errors.push('Open/accepting availability evidence is stale (>7 days)');
+  }
+  return errors;
+}
+
+export class ResearchClaimValidator {
+  static validate(record: ProgramResearchClaim, now = new Date()): ResearchValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    for (const rule of record.eligibility_rules || []) {
+      if (!hasAuthoritativeEvidence(rule.evidence)) errors.push(`Eligibility requirement has no authoritative evidence: ${rule.description}`);
+    }
+    for (const doc of record.documents || []) {
+      if (doc.state !== 'NOT_CONFIRMED' && !hasAuthoritativeEvidence(doc.evidence)) {
+        errors.push(`Document marked ${doc.state} without authoritative evidence: ${doc.name}`);
+      }
+    }
+    if (record.application_url && !hasAuthoritativeEvidence(record.application_url_evidence)) {
+      errors.push('Application URL cannot be presented as actionable without authoritative evidence');
+    }
+    if (record.benefit_amount != null && !hasAuthoritativeEvidence(record.benefit_amount_evidence)) errors.push('Benefit amount has no authoritative evidence');
+    if (record.deadline && !hasAuthoritativeEvidence(record.deadline_evidence)) errors.push('Deadline has no authoritative evidence');
+    if (record.phone && !hasAuthoritativeEvidence(record.phone_evidence)) errors.push('Phone number has no authoritative evidence');
+    if (record.geography != null && !hasAuthoritativeEvidence(record.geography_evidence)) errors.push('Geographic restriction has no authoritative evidence');
+
+    const claimsOpen = record.availability_state === 'ACCEPTING_APPLICATIONS' || record.availability_state === 'WAITLIST_OPEN';
+    if (claimsOpen) {
+      errors.push(...validateOpenAvailabilityEvidence(record.availability_evidence, now));
+    }
+
+    if (record.lifecycle_status === 'VERIFIED') {
+      const materialEvidence = [
+        ...(record.eligibility_rules || []).map(x => x.evidence),
+        ...(record.documents || []).filter(x => x.state !== 'NOT_CONFIRMED').map(x => x.evidence),
+        record.application_url ? record.application_url_evidence : null,
+      ].filter(Boolean);
+      if (!materialEvidence.length) errors.push('Program cannot be VERIFIED without evidence-backed material facts');
+    }
+
+    if (!record.availability_state || record.availability_state === 'STATUS_NOT_CONFIRMED') warnings.push('Current application availability is not confirmed');
+    return { valid: errors.length === 0, errors, warnings };
+  }
+}

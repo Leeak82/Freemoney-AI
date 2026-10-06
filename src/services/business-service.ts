@@ -181,10 +181,13 @@ export class BusinessService {
     return result.rows;
   }
 
-  public async getBusiness(businessId: string): Promise<BusinessProfile | null> {
+  public async getBusiness(businessId: string, userId: string): Promise<BusinessProfile | null> {
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
     const result = await query<BusinessProfile>(
-      `SELECT * FROM business_profiles WHERE business_id = $1;`,
-      [businessId]
+      `SELECT bp.* FROM business_profiles bp
+       JOIN businesses b ON b.id = bp.business_id
+       WHERE bp.business_id = $1 AND b.user_id = $2;`,
+      [businessId, userId]
     );
     return result.rows[0] || null;
   }
@@ -216,7 +219,8 @@ export class BusinessService {
     return result.rows[0] || null;
   }
 
-  public async getChecklists(businessId: string): Promise<any[]> {
+  public async getChecklists(businessId: string, userId: string): Promise<any[]> {
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
     const result = await query(
       `SELECT bc.*, COALESCE(
          json_agg(
@@ -230,9 +234,10 @@ export class BusinessService {
        ) AS items
        FROM business_checklists bc
        LEFT JOIN business_checklist_items bci ON bci.checklist_id = bc.id
-       WHERE bc.business_id = $1
+       JOIN businesses b ON b.id = bc.business_id
+       WHERE bc.business_id = $1 AND b.user_id = $2
        GROUP BY bc.id ORDER BY bc.created_at ASC;`,
-      [businessId]
+      [businessId, userId]
     );
     return result.rows;
   }
@@ -240,8 +245,10 @@ export class BusinessService {
   public async updateChecklistItem(
     businessId: string,
     itemId: string,
-    status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED'
+    status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED',
+    userId: string
   ): Promise<BusinessChecklistItem> {
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
     const result = await query<BusinessChecklistItem>(
       `UPDATE business_checklist_items bci SET
          status = $3::text,
@@ -249,9 +256,11 @@ export class BusinessService {
          completed_at = CASE WHEN $3::text = 'COMPLETED' THEN CURRENT_TIMESTAMP ELSE NULL END,
          updated_at = CURRENT_TIMESTAMP
        FROM business_checklists bc
+       JOIN businesses b ON b.id = bc.business_id
        WHERE bci.id = $2 AND bci.checklist_id = bc.id AND bc.business_id = $1
+         AND b.user_id = $4
        RETURNING bci.*;`,
-      [businessId, itemId, status]
+      [businessId, itemId, status, userId]
     );
     if (result.rowCount === 0) throw new Error('Checklist item not found');
     return result.rows[0];
