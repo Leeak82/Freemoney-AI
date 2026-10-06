@@ -12,6 +12,7 @@ import { PublicApisDiscoveryParser } from '../sources/discovery.js';
 import { businessService } from '../services/business-service.js';
 import { businessProviderRegistry } from '../business/providers.js';
 import { programResearchService } from '../research/research-service.js';
+import { caseService } from '../services/case-service.js';
 import { z } from 'zod';
 
 export const apiRouter = Router();
@@ -168,7 +169,29 @@ apiRouter.post('/search/natural-language', async (req: Request, res: Response) =
       offset: Number.isFinite(Number(req.body?.offset)) ? Math.max(Number(req.body.offset), 0) : 0,
     };
     const searchResult = await searchEngine.search(searchQuery);
-    res.json({ interpretation, ...searchResult });
+
+    // Persistence is opt-in per inquiry: only a caller that supplies a case_id and
+    // a valid private session gets a durable query/result snapshot. General anonymous
+    // search remains available without creating a profile or silently storing location.
+    let searchId: string | undefined;
+    const caseId = typeof req.body?.case_id === 'string' ? req.body.case_id : undefined;
+    if (caseId) {
+      const authorization = req.headers.authorization;
+      if (!authorization) {
+        res.status(401).json({ error: 'A private session is required to save this inquiry.' });
+        return;
+      }
+      const actor = await import('../services/session-service.js').then(({ sessionService }) =>
+        sessionService.resolve(authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '')
+      );
+      if (!actor) {
+        res.status(401).json({ error: 'Invalid or expired private session.' });
+        return;
+      }
+      searchId = await caseService.recordSearch(actor.userId, caseId, text, interpretation, searchResult.results || []);
+    }
+
+    res.json({ interpretation, ...searchResult, ...(searchId ? { saved_search_id: searchId, case_id: caseId } : {}) });
   } catch (err: any) {
     res.status(400).json({ error: 'Natural-language search failed', details: err.message });
   }
