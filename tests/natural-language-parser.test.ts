@@ -60,6 +60,25 @@ describe('Natural-language assistance search parser', () => {
     }
   });
 
+  it('recognizes homelessness and basic-needs requests without inventing location', () => {
+    const result = parser.parse('I need a hotel voucher, a shower, warm clothes, and a soup kitchen.');
+    expect(result.search.intent).toBe('PERSONAL_ASSISTANCE');
+    expect(result.detected.categories).toEqual(expect.arrayContaining([
+      'rent-housing',
+      'emergency-assistance',
+      'basic-needs',
+      'food',
+    ]));
+    expect(result.detected.urgency).toBe('URGENT');
+    expect(result.detected.location).toEqual({ state: undefined, county: undefined, city: undefined, zip: undefined });
+  });
+
+  it('recognizes local giveaway wording as a basic-needs request without assuming geography', () => {
+    const result = parser.parse('Are there any local giveaways for homeless people or people in need?');
+    expect(result.detected.categories).toContain('basic-needs');
+    expect(result.detected.location).toEqual({ state: undefined, county: undefined, city: undefined, zip: undefined });
+  });
+
   it('does not invent location when none was supplied', () => {
     const result = parser.parse('I need help paying rent.');
     expect(result.detected.location).toEqual({ state: undefined, county: undefined, city: undefined, zip: undefined });
