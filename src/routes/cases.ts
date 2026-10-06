@@ -53,3 +53,12 @@ caseRouter.get('/cases/:id', requireUserSession, async (req: Request, res: Respo
   }
   res.json({ case: item });
 });
+
+caseRouter.get('/cases/:id/history', requireUserSession, async (req: Request, res: Response) => {
+  const history = await caseService.getCaseHistory(req.actor!.userId, req.params.id);
+  if (!history) {
+    res.status(404).json({ error: 'Case not found' });
+    return;
+  }
+  res.json(history);
+});

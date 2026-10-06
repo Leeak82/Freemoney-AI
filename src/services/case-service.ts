@@ -24,6 +24,27 @@ export class CaseService {
     return result.rows[0] || null;
   }
 
+  async getCaseHistory(userId: string, caseId: string) {
+    const owned = await this.getOwnedCase(userId, caseId);
+    if (!owned) return null;
+    const searches = await query(
+      `SELECT s.id,s.query_text,s.results_count,s.interpretation,s.created_at,
+              COALESCE(jsonb_agg(jsonb_build_object(
+                'opportunity_id',csr.opportunity_id,
+                'rank',csr.rank,
+                'match_classification',csr.match_classification,
+                'match_reasons',csr.match_reasons,
+                'missing_facts',csr.missing_facts,
+                'research_snapshot',csr.research_snapshot
+              ) ORDER BY csr.rank) FILTER (WHERE csr.id IS NOT NULL),'[]'::jsonb) AS results
+       FROM searches s
+       LEFT JOIN case_search_results csr ON csr.search_id=s.id AND csr.case_id=$2
+       WHERE s.user_id=$1 AND s.case_id=$2
+       GROUP BY s.id ORDER BY s.created_at DESC`, [userId,caseId]
+    );
+    return { case: owned, searches: searches.rows };
+  }
+
   async recordSearch(userId: string, caseId: string, queryText: string, interpretation: unknown, results: any[]) {
     const owned = await this.getOwnedCase(userId, caseId);
     if (!owned) throw new Error('Case not found');
@@ -34,13 +55,22 @@ export class CaseService {
     );
     for (let i=0;i<results.length;i++) {
       const item=results[i];
-      if (!item?.id) continue;
+      const opportunityId=item?.opportunity?.id;
+      if (!opportunityId) continue;
       await query(
         `INSERT INTO case_search_results
          (case_id,search_id,opportunity_id,rank,match_classification,match_reasons,missing_facts,research_snapshot)
          VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)
          ON CONFLICT (search_id,opportunity_id) DO NOTHING`,
-        [caseId,search.rows[0].id,item.id,i+1,item.match_classification || 'NEEDS_VERIFICATION',JSON.stringify(item.match_reasons || []),JSON.stringify(item.missing_facts || []),JSON.stringify(item.research || {})]
+        [caseId,search.rows[0].id,opportunityId,i+1,item.match_status || 'NEEDS_VERIFICATION',JSON.stringify(item.why_you_may_qualify || []),JSON.stringify(item.missing_information || []),JSON.stringify({
+          opportunity: item.opportunity,
+          source_provenance: item.source_provenance,
+          requirements: item.requirements || [],
+          documents: item.documents || [],
+          application_links: item.application_links || [],
+          confidence: item.confidence,
+          match_score: item.match_score,
+        })]
       );
     }
     await query(`UPDATE assistance_cases SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND user_id=$2`, [caseId,userId]);
