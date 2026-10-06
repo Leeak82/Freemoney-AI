@@ -210,7 +210,10 @@ function renderHomeView() {
     <div class="search-card" style="margin-bottom:20px;">
       <div class="input-label" style="margin-bottom:8px;">Describe what's going on</div>
       <p style="color:var(--text-muted);margin:0 0 12px;">Use normal language. FreeMoney-AI will turn it into conservative search filters and show what it detected.</p>
-      <textarea id="input-natural-query" class="form-control" rows="3" placeholder="Example: I'm behind on rent and need help now.">${escapeHtml(state.naturalQuery)}</textarea>
+      <textarea id="input-natural-query" class="form-control" rows="3" placeholder="Examples:
+• I’m behind on rent and need help now.
+• My electricity is about to be shut off.
+• I need help paying for food this week.">${escapeHtml(state.naturalQuery)}</textarea>
       <div style="display:flex;justify-content:flex-end;margin-top:12px;">
         <button id="btn-natural-search" class="btn btn-primary">Search</button>
       </div>
