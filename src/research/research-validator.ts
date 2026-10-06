@@ -55,14 +55,24 @@ export class ResearchClaimValidator {
     if (record.geography != null && !hasAuthoritativeEvidence(record.geography_evidence)) errors.push('Geographic restriction has no authoritative evidence');
 
     const claimsOpen = record.availability_state === 'ACCEPTING_APPLICATIONS' || record.availability_state === 'WAITLIST_OPEN';
-    if (claimsOpen && !hasAuthoritativeEvidence(record.availability_evidence)) {
-      errors.push('Open/accepting availability requires recent authoritative evidence');
-    }
-    if (claimsOpen && record.availability_evidence?.verified_at) {
-      const ageMs = now.getTime() - new Date(record.availability_evidence.verified_at).getTime();
-      if (ageMs > 7 * 24 * 60 * 60 * 1000) errors.push('Open/accepting availability evidence is stale (>7 days)');
-    } else if (claimsOpen) {
-      errors.push('Open/accepting availability requires a verification timestamp');
+    if (claimsOpen) {
+      const availabilityEvidence = record.availability_evidence;
+      if (!hasAuthoritativeEvidence(availabilityEvidence)) {
+        errors.push('Open/accepting availability requires authoritative evidence');
+      }
+      if (!availabilityEvidence?.verified_at) {
+        errors.push('Open/accepting availability requires a verification timestamp');
+      } else {
+        const verifiedAtMs = new Date(availabilityEvidence.verified_at).getTime();
+        const nowMs = now.getTime();
+        if (!Number.isFinite(verifiedAtMs)) {
+          errors.push('Open/accepting availability verification timestamp is invalid');
+        } else if (verifiedAtMs > nowMs) {
+          errors.push('Open/accepting availability verification timestamp cannot be in the future');
+        } else if (nowMs - verifiedAtMs > 7 * 24 * 60 * 60 * 1000) {
+          errors.push('Open/accepting availability evidence is stale (>7 days)');
+        }
+      }
     }
 
     if (record.lifecycle_status === 'VERIFIED') {
