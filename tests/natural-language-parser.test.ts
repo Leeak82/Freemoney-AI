@@ -51,6 +51,15 @@ describe('Natural-language assistance search parser', () => {
     expect(result.inferred_profile.is_veteran).toBeUndefined();
   });
 
+  it('recognizes fuel and gas voucher requests as transportation assistance without inventing location', () => {
+    for (const text of ['I need a fuel voucher', 'Can I get help with gas money?', 'I need a gas card to get to work']) {
+      const result = parser.parse(text);
+      expect(result.search.intent).toBe('PERSONAL_ASSISTANCE');
+      expect(result.detected.categories).toContain('transportation');
+      expect(result.detected.location).toEqual({ state: undefined, county: undefined, city: undefined, zip: undefined });
+    }
+  });
+
   it('does not invent location when none was supplied', () => {
     const result = parser.parse('I need help paying rent.');
     expect(result.detected.location).toEqual({ state: undefined, county: undefined, city: undefined, zip: undefined });

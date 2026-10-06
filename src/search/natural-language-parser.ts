@@ -41,7 +41,7 @@ const CATEGORY_RULES: Array<[string, RegExp]> = [
   ['rent-housing', /\b(rent|rental|housing|evict(?:ion|ed)?|shelter|homeless|mortgage|landlord)\b/i],
   ['utilities', /\b(utilit(?:y|ies)|electric(?:ity)?|power bill|water bill|gas bill|heat(?:ing)?|liheap|internet|broadband)\b/i],
   ['food', /\b(food|grocer(?:y|ies)|snap|ebt|wic|meal|pantry)\b/i],
-  ['transportation', /\b(transport(?:ation)?|bus pass|gas voucher|vehicle repair|car repair|transit)\b/i],
+  ['transportation', /\b(transport(?:ation)?|bus (?:pass|fare)|fuel (?:voucher|card|assistance|help)|gas (?:voucher|card|money|assistance|help)|gasoline (?:voucher|card|assistance|help)|vehicle repair|car repair|transit|mileage (?:assistance|reimbursement)|ride (?:assistance|help))\b/i],
   ['veterans', /\b(veteran|military|service member|servicemember|dd-?214)\b/i],
   ['disability', /\b(disab(?:led|ility)|ssi|ssdi|accessib(?:le|ility)|assistive)\b/i],
   ['education-scholarships', /\b(scholarship|tuition|college|school|student|pell|training program)\b/i],
