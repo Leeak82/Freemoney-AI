@@ -29,8 +29,39 @@ export interface ProgramResearchClaim {
 
 export interface ResearchValidationResult { valid: boolean; errors: string[]; warnings: string[]; }
 
+const OPEN_AVAILABILITY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 function hasAuthoritativeEvidence(e?: EvidenceRef | null): boolean {
   return Boolean(e?.authoritative && e.source_url && e.source_organization && e.retrieved_at);
+}
+
+function validateOpenAvailabilityEvidence(
+  evidence: EvidenceRef | null | undefined,
+  now: Date
+): string[] {
+  const errors: string[] = [];
+  if (!hasAuthoritativeEvidence(evidence)) {
+    errors.push('Open/accepting availability requires authoritative evidence');
+  }
+  if (!evidence?.verified_at) {
+    errors.push('Open/accepting availability requires a verification timestamp');
+    return errors;
+  }
+
+  const verifiedAtMs = new Date(evidence.verified_at).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(verifiedAtMs)) {
+    errors.push('Open/accepting availability verification timestamp is invalid');
+    return errors;
+  }
+  if (verifiedAtMs > nowMs) {
+    errors.push('Open/accepting availability verification timestamp cannot be in the future');
+    return errors;
+  }
+  if (nowMs - verifiedAtMs > OPEN_AVAILABILITY_MAX_AGE_MS) {
+    errors.push('Open/accepting availability evidence is stale (>7 days)');
+  }
+  return errors;
 }
 
 export class ResearchClaimValidator {
@@ -56,23 +87,7 @@ export class ResearchClaimValidator {
 
     const claimsOpen = record.availability_state === 'ACCEPTING_APPLICATIONS' || record.availability_state === 'WAITLIST_OPEN';
     if (claimsOpen) {
-      const availabilityEvidence = record.availability_evidence;
-      if (!hasAuthoritativeEvidence(availabilityEvidence)) {
-        errors.push('Open/accepting availability requires authoritative evidence');
-      }
-      if (!availabilityEvidence?.verified_at) {
-        errors.push('Open/accepting availability requires a verification timestamp');
-      } else {
-        const verifiedAtMs = new Date(availabilityEvidence.verified_at).getTime();
-        const nowMs = now.getTime();
-        if (!Number.isFinite(verifiedAtMs)) {
-          errors.push('Open/accepting availability verification timestamp is invalid');
-        } else if (verifiedAtMs > nowMs) {
-          errors.push('Open/accepting availability verification timestamp cannot be in the future');
-        } else if (nowMs - verifiedAtMs > 7 * 24 * 60 * 60 * 1000) {
-          errors.push('Open/accepting availability evidence is stale (>7 days)');
-        }
-      }
+      errors.push(...validateOpenAvailabilityEvidence(record.availability_evidence, now));
     }
 
     if (record.lifecycle_status === 'VERIFIED') {
