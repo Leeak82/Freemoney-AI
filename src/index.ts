@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { apiRouter } from './routes/api.js';
+import { caseRouter } from './routes/cases.js';
 import { config } from './config/index.js';
 import { naturalLanguageSearchParser } from './search/natural-language-parser.js';
 import { GrantsGovSource } from './sources/grants-gov.js';
@@ -234,6 +235,9 @@ export function createApp(): express.Application {
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', service: 'freemoney-ai' });
   });
+
+  // Private guest/account case routes are available in both SHARE_MODE and full mode.
+  app.use('/api', caseRouter);
 
   const shareMode = process.env.SHARE_MODE === 'true';
 
