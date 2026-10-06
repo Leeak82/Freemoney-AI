@@ -52,12 +52,9 @@ export class ApplicationService {
       [validUserId, `user-${validUserId}@freemoney.local`, 'FreeMoney User']
     );
 
-    // Initial Checklist derived strictly from opportunity requirements
-    const checklist = (
-      opp.required_documents.length > 0
-        ? opp.required_documents
-        : ['Standard Application Form']
-    ).map((doc) => ({
+    // Initial checklist contains only source-verified program documents.
+    // Missing document requirements remain unknown rather than becoming placeholders.
+    const checklist = opp.required_documents.map((doc) => ({
       document_name: doc,
       required: true,
       collected: false,
@@ -160,7 +157,8 @@ export class ApplicationService {
   /**
    * Get single application by ID
    */
-  public async getApplicationById(id: string): Promise<any | null> {
+  public async getApplicationById(id: string, userId: string): Promise<any | null> {
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
     const res = await query(
       `SELECT 
          a.*,
@@ -175,8 +173,8 @@ export class ApplicationService {
        FROM applications a
        JOIN opportunities o ON a.opportunity_id = o.id
        JOIN sources s ON o.source_id = s.id
-       WHERE a.id = $1;`,
-      [id]
+       WHERE a.id = $1 AND a.user_id = $2;`,
+      [id, userId]
     );
 
     return res.rows[0] || null;
@@ -187,11 +185,13 @@ export class ApplicationService {
    */
   public async updateApplication(
     id: string,
+    userId: string,
     dto: UpdateApplicationDTO
   ): Promise<ApplicationRecord> {
+    if (!validateUuid(userId)) throw new Error('A valid user UUID is required');
     const existingRes = await query<ApplicationRecord>(
-      `SELECT * FROM applications WHERE id = $1;`,
-      [id]
+      `SELECT * FROM applications WHERE id = $1 AND user_id = $2;`,
+      [id, userId]
     );
     if (existingRes.rows.length === 0) {
       throw new Error(`Application ${id} not found`);
@@ -232,8 +232,8 @@ export class ApplicationService {
     }
 
     const updateRes = await query<ApplicationRecord>(
-      `UPDATE applications SET ${sets.join(', ')} WHERE id = $1 RETURNING *;`,
-      params
+      `UPDATE applications SET ${sets.join(', ')} WHERE id = $1 AND user_id = ${idx} RETURNING *;`,
+      [...params, userId]
     );
 
     const updated = updateRes.rows[0];
@@ -241,9 +241,9 @@ export class ApplicationService {
     // Audit state transition event
     if (dto.status && dto.status !== current.status) {
       await query(
-        `INSERT INTO application_events (application_id, previous_status, new_status, note)
-         VALUES ($1, $2, $3, $4);`,
-        [id, current.status, dto.status, dto.notes || 'Status updated by user']
+        `INSERT INTO application_events (application_id, previous_status, new_status, actor_id, note)
+         VALUES ($1, $2, $3, $4, $5);`,
+        [id, current.status, dto.status, userId, dto.notes || 'Status updated by user']
       );
     }
 
