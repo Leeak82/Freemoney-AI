@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS evidence_records (
   confidence NUMERIC(4,3),
   notes TEXT,
   superseded_at TIMESTAMPTZ,
-  CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))
+  CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+  UNIQUE (id, opportunity_id)
 );
 CREATE INDEX IF NOT EXISTS idx_evidence_opportunity_fact ON evidence_records(opportunity_id, fact_type, fact_key);
 CREATE INDEX IF NOT EXISTS idx_evidence_current ON evidence_records(opportunity_id) WHERE superseded_at IS NULL;
@@ -40,11 +41,13 @@ CREATE TABLE IF NOT EXISTS program_availability (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
   availability_state VARCHAR(50) NOT NULL DEFAULT 'STATUS_NOT_CONFIRMED',
-  evidence_record_id UUID REFERENCES evidence_records(id) ON DELETE SET NULL,
+  evidence_record_id UUID,
   verified_at TIMESTAMPTZ,
   stale_after TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  CHECK (availability_state IN ('ACCEPTING_APPLICATIONS','APPLICATION_WINDOW_SCHEDULED','WAITLIST_OPEN','WAITLIST_CLOSED','TEMPORARILY_PAUSED','FUNDING_EXHAUSTED','CLOSED','EXPIRED','STATUS_NOT_CONFIRMED'))
+  CHECK (availability_state IN ('ACCEPTING_APPLICATIONS','APPLICATION_WINDOW_SCHEDULED','WAITLIST_OPEN','WAITLIST_CLOSED','TEMPORARILY_PAUSED','FUNDING_EXHAUSTED','CLOSED','EXPIRED','STATUS_NOT_CONFIRMED')),
+  FOREIGN KEY (evidence_record_id, opportunity_id)
+    REFERENCES evidence_records(id, opportunity_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS researched_eligibility_rules (
@@ -54,8 +57,10 @@ CREATE TABLE IF NOT EXISTS researched_eligibility_rules (
   description TEXT NOT NULL,
   operator VARCHAR(50),
   target_value JSONB,
-  evidence_record_id UUID NOT NULL REFERENCES evidence_records(id) ON DELETE RESTRICT,
+  evidence_record_id UUID NOT NULL,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (evidence_record_id, opportunity_id)
+    REFERENCES evidence_records(id, opportunity_id) ON DELETE RESTRICT,
   UNIQUE(opportunity_id, rule_key, evidence_record_id)
 );
 
@@ -65,8 +70,10 @@ CREATE TABLE IF NOT EXISTS researched_documents (
   document_name VARCHAR(255) NOT NULL,
   requirement_state VARCHAR(50) NOT NULL,
   source_wording TEXT,
-  evidence_record_id UUID NOT NULL REFERENCES evidence_records(id) ON DELETE RESTRICT,
+  evidence_record_id UUID NOT NULL,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (evidence_record_id, opportunity_id)
+    REFERENCES evidence_records(id, opportunity_id) ON DELETE RESTRICT,
   CHECK (requirement_state IN ('REQUIRED','REQUESTED_DURING_APPLICATION','MAY_BE_REQUESTED','NOT_CONFIRMED'))
 );
 
@@ -76,8 +83,10 @@ CREATE TABLE IF NOT EXISTS application_steps (
   step_number INTEGER NOT NULL,
   instruction TEXT NOT NULL,
   method VARCHAR(50),
-  evidence_record_id UUID NOT NULL REFERENCES evidence_records(id) ON DELETE RESTRICT,
+  evidence_record_id UUID NOT NULL,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (evidence_record_id, opportunity_id)
+    REFERENCES evidence_records(id, opportunity_id) ON DELETE RESTRICT,
   UNIQUE(opportunity_id, step_number)
 );
 
@@ -86,13 +95,17 @@ CREATE TABLE IF NOT EXISTS source_conflicts (
   opportunity_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
   fact_type VARCHAR(100) NOT NULL,
   fact_key VARCHAR(255) NOT NULL,
-  evidence_record_a UUID NOT NULL REFERENCES evidence_records(id) ON DELETE RESTRICT,
-  evidence_record_b UUID NOT NULL REFERENCES evidence_records(id) ON DELETE RESTRICT,
+  evidence_record_a UUID NOT NULL,
+  evidence_record_b UUID NOT NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'OPEN',
   resolution_notes TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   resolved_at TIMESTAMPTZ,
-  CHECK (status IN ('OPEN','RESOLVED','SUPERSEDED'))
+  CHECK (status IN ('OPEN','RESOLVED','SUPERSEDED')),
+  FOREIGN KEY (evidence_record_a, opportunity_id)
+    REFERENCES evidence_records(id, opportunity_id) ON DELETE RESTRICT,
+  FOREIGN KEY (evidence_record_b, opportunity_id)
+    REFERENCES evidence_records(id, opportunity_id) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS verification_events (
