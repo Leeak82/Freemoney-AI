@@ -35,6 +35,24 @@ describe('Evidence-backed program research validation', () => {
     expect(result.errors.join(' ')).toMatch(/stale/);
   });
 
+
+
+  it('rejects malformed and future availability verification timestamps', () => {
+    const malformed = ResearchClaimValidator.validate({
+      availability_state: 'ACCEPTING_APPLICATIONS',
+      availability_evidence: { ...official, verified_at: 'not-a-date' },
+    }, new Date('2026-10-06T00:00:00Z'));
+    expect(malformed.valid).toBe(false);
+    expect(malformed.errors.join(' ')).toMatch(/timestamp is invalid/);
+
+    const future = ResearchClaimValidator.validate({
+      availability_state: 'WAITLIST_OPEN',
+      availability_evidence: { ...official, verified_at: '2026-10-07T00:00:00Z' },
+    }, new Date('2026-10-06T00:00:00Z'));
+    expect(future.valid).toBe(false);
+    expect(future.errors.join(' ')).toMatch(/future/);
+  });
+
   it('accepts source-backed claims without inventing missing fields', () => {
     const result = ResearchClaimValidator.validate({
       lifecycle_status: 'SOURCE_VERIFIED',
