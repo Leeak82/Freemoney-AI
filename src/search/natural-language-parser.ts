@@ -38,16 +38,17 @@ const STATE_CODES: Record<string, string> = {
 const VALID_STATE_CODES = new Set(Object.values(STATE_CODES));
 
 const CATEGORY_RULES: Array<[string, RegExp]> = [
-  ['rent-housing', /\b(rent|rental|housing|evict(?:ion|ed)?|shelter|homeless|mortgage|landlord)\b/i],
+  ['rent-housing', /\b(rent|rental|housing|evict(?:ion|ed)?|shelter|homeless|mortgage|landlord|hotel voucher|motel voucher|emergency lodging|temporary lodging)\b/i],
   ['utilities', /\b(utilit(?:y|ies)|electric(?:ity)?|power bill|water bill|gas bill|heat(?:ing)?|liheap|internet|broadband)\b/i],
-  ['food', /\b(food|grocer(?:y|ies)|snap|ebt|wic|meal|pantry)\b/i],
+  ['food', /\b(food|grocer(?:y|ies)|snap|ebt|wic|meal|pantry|soup kitchen|hot meal|free meal|community meal)\b/i],
   ['transportation', /\b(transport(?:ation)?|bus (?:pass|fare)|fuel (?:voucher|card|assistance|help)|gas (?:voucher|card|money|assistance|help)|gasoline (?:voucher|card|assistance|help)|vehicle repair|car repair|transit|mileage (?:assistance|reimbursement)|ride (?:assistance|help))\b/i],
   ['veterans', /\b(veteran|military|service member|servicemember|dd-?214)\b/i],
   ['disability', /\b(disab(?:led|ility)|ssi|ssdi|accessib(?:le|ility)|assistive)\b/i],
   ['education-scholarships', /\b(scholarship|tuition|college|school|student|pell|training program)\b/i],
   ['medical-assistance', /\b(medical|health care|healthcare|medicaid|prescription|dental|vision|copay)\b/i],
   ['child-family', /\b(child ?care|daycare|single (?:mom|mother|dad|father|parent)|tanf|family assistance)\b/i],
-  ['emergency-assistance', /\b(emergency|urgent|crisis|asap|today|now|past due|shut ?off|disconnect(?:ion)?|eviction)\b/i],
+  ['emergency-assistance', /\b(emergency|urgent|crisis|asap|today|now|past due|shut ?off|disconnect(?:ion)?|eviction|hotel voucher|motel voucher|emergency lodging|homeless|unsheltered)\b/i],
+  ['basic-needs', /\b(shower(?:s)?|hygiene|hygiene kit|clothes|clothing|warm clothes|coat|jacket|blanket|sock(?:s)?|glove(?:s)?|giveaway|give away|free supplies|basic needs)\b/i],
   ['debt-financial', /\b(debt|credit card|foreclosure|financial counseling|loan relief|behind on bills)\b/i],
   ['tax-credits', /\b(tax credit|tax refund|eitc|earned income|child tax credit|vita)\b/i],
   ['disaster-assistance', /\b(disaster|flood|wildfire|earthquake|hurricane|fema)\b/i],
@@ -69,7 +70,7 @@ const CATEGORY_RULES: Array<[string, RegExp]> = [
 ];
 
 const BUSINESS_CUES = /\b(business|company|llc|startup|entrepreneur|self-employed|sole proprietor|employees?|inventory|payroll|commercial)\b/i;
-const URGENT_CUES = /\b(asap|today|right now|urgent|emergency|crisis|eviction|evicted|past due|shut ?off|disconnect(?:ed|ion)?|homeless|no food|behind on rent)\b/i;
+const URGENT_CUES = /\b(asap|today|right now|urgent|emergency|crisis|eviction|evicted|past due|shut ?off|disconnect(?:ed|ion)?|homeless|unsheltered|no food|starving|behind on rent|need(?:ing)? shelter tonight|hotel voucher|motel voucher)\b/i;
 
 function titleCase(value: string): string {
   return value.trim().replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
