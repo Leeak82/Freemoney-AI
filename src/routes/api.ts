@@ -10,6 +10,7 @@ import { requireAdminAuth } from '../middleware/auth.js';
 import { PublicApisDiscoveryParser } from '../sources/discovery.js';
 import { businessService } from '../services/business-service.js';
 import { businessProviderRegistry } from '../business/providers.js';
+import { programResearchService } from '../research/research-service.js';
 import { z } from 'zod';
 
 export const apiRouter = Router();
@@ -179,9 +180,51 @@ apiRouter.get('/opportunities/:id', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Opportunity not found' });
       return;
     }
-    res.json(result);
+    const research = await programResearchService.getSnapshot(req.params.id);
+    res.json({
+      ...result,
+      research,
+      research_notice: research
+        ? 'Program-specific verified research is shown below. Unknown fields remain unknown until authoritative evidence is found.'
+        : 'Detailed program research has not yet been completed for this record. Do not treat missing fields as eligibility requirements.',
+    });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch opportunity detail', details: err.message });
+  }
+});
+
+apiRouter.post('/opportunities/:id/report-outdated', async (req: Request, res: Response) => {
+  try {
+    const input = z.object({
+      report_type: z.enum([
+        'PROGRAM_CLOSED',
+        'BROKEN_LINK',
+        'INCORRECT_PHONE',
+        'ELIGIBILITY_CHANGED',
+        'WAITLIST_CHANGED',
+        'APPLICATION_PROCESS_CHANGED',
+        'OTHER',
+      ]),
+      report_text: z.string().trim().max(2000).optional(),
+    }).parse(req.body || {});
+    const opportunity = await searchEngine.getOpportunityById(req.params.id);
+    if (!opportunity) {
+      res.status(404).json({ error: 'Opportunity not found' });
+      return;
+    }
+    const report = await programResearchService.reportOutdated(
+      req.params.id,
+      input.report_type,
+      input.report_text
+    );
+    res.status(202).json({
+      success: true,
+      report,
+      message: 'Report received. Existing verified information was not overwritten; this program is queued for re-verification.',
+    });
+  } catch (err: any) {
+    const details = err instanceof z.ZodError ? err.flatten() : err.message;
+    res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Failed to report program information', details });
   }
 });
 
@@ -465,6 +508,18 @@ apiRouter.post('/sync/:source', requireAdminAuth, async (req: Request, res: Resp
   } catch (err: any) {
     const details = err instanceof z.ZodError ? err.flatten() : err.message;
     res.status(err instanceof z.ZodError ? 400 : 500).json({ error: 'Synchronization failed', details });
+  }
+});
+
+apiRouter.get('/admin/research-queue', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const queue = await programResearchService.getResearchQueue(
+      Number.isFinite(limit) ? limit : 100
+    );
+    res.json({ queue });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch research queue', details: err.message });
   }
 });
 
