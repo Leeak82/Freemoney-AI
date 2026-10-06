@@ -22,6 +22,8 @@ const state = {
   currentView: 'home',
   opportunities: [],
   loading: false,
+  sessionToken: localStorage.getItem('freemoney_guest_token') || '',
+  currentCaseId: localStorage.getItem('freemoney_case_id') || '',
 };
 
 function escapeHtml(value) {
@@ -40,6 +42,31 @@ function safeExternalUrl(value) {
   } catch {
     return '#';
   }
+}
+
+function privateHeaders(extra = {}) {
+  return state.sessionToken ? { ...extra, Authorization: `Bearer ${state.sessionToken}` } : extra;
+}
+
+async function ensureGuestCase() {
+  if (!state.sessionToken) {
+    const sessionRes = await fetch(`${API_BASE}/session/guest`, { method: 'POST' });
+    const session = await sessionRes.json();
+    if (!sessionRes.ok || !session.token) throw new Error(session.error || 'Could not start private guest session');
+    state.sessionToken = session.token;
+    localStorage.setItem('freemoney_guest_token', session.token);
+  }
+  if (!state.currentCaseId) {
+    const caseRes = await fetch(`${API_BASE}/cases`, {
+      method: 'POST', headers: privateHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ title: 'My assistance search', intent: state.intent || undefined }),
+    });
+    const data = await caseRes.json();
+    if (!caseRes.ok || !data.case?.id) throw new Error(data.error || 'Could not create private assistance case');
+    state.currentCaseId = data.case.id;
+    localStorage.setItem('freemoney_case_id', data.case.id);
+  }
+  return state.currentCaseId;
 }
 
 function formatOpportunityLocation(opp) {
@@ -123,7 +150,8 @@ async function loadCategories() {
 
 async function loadProfile() {
   try {
-    const res = await fetch(`${API_BASE}/profile`);
+    if (!state.sessionToken) return;
+    const res = await fetch(`${API_BASE}/profile`, { headers: privateHeaders() });
     const data = await res.json();
     state.userProfile = data.profile;
   } catch (err) {
@@ -133,7 +161,8 @@ async function loadProfile() {
 
 async function loadBusinesses() {
   try {
-    const res = await fetch(`${API_BASE}/businesses`);
+    if (!state.sessionToken) return;
+    const res = await fetch(`${API_BASE}/businesses`, { headers: privateHeaders() });
     const data = await res.json();
     state.businesses = data.businesses || [];
     state.businessProfile = state.businesses[0] || null;
@@ -293,15 +322,17 @@ async function executeNaturalLanguageSearch() {
 
   container.innerHTML = `<div style="text-align:center;padding:50px 0;color:var(--text-muted);">Understanding your situation and searching verified programs...</div>`;
   try {
+    const caseId = await ensureGuestCase();
     const payload = {
       text: state.naturalQuery,
+      case_id: caseId,
       intent: state.intent || undefined,
       user_profile: state.userProfile || undefined,
       business_profile: state.businessProfile || undefined,
     };
     const res = await fetch(`${API_BASE}/search/natural-language`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: privateHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
     });
     const data = await res.json();
@@ -322,7 +353,7 @@ async function executeNaturalLanguageSearch() {
       <div class="search-card" style="margin-bottom:18px;">
         <strong>What FreeMoney-AI understood</strong>
         <div style="color:var(--text-muted);margin-top:8px;">${signals.length ? signals.map(escapeHtml).join(' • ') : 'Broad assistance search'}</div>
-        <div style="color:var(--text-dim);font-size:.84rem;margin-top:8px;">This interpretation narrows the search; it does not claim you qualify.</div>
+        <div style="color:var(--text-dim);font-size:.84rem;margin-top:8px;">This interpretation narrows the search; it does not claim you qualify. This inquiry is saved privately to this guest session so you can continue it.</div>
       </div>`);
   } catch (err) {
     container.innerHTML = `<div style="color:var(--danger);text-align:center;padding:30px;">${escapeHtml(err.message || 'Natural-language search failed.')}</div>`;
