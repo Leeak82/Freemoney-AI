@@ -323,7 +323,13 @@ async function executeNaturalLanguageSearch() {
   const container = document.getElementById('results-container');
   if (!container || !state.naturalQuery) return;
 
-  container.innerHTML = `<div style="text-align:center;padding:50px 0;color:var(--text-muted);">Understanding your situation and searching verified programs...</div>`;
+  container.innerHTML = `
+    <div style="text-align:center;padding:42px 18px;color:var(--text-muted);">
+      <div aria-label="Search in progress" style="width:34px;height:34px;margin:0 auto 14px;border:4px solid var(--surface-border);border-top-color:var(--primary);border-radius:50%;animation:fm-spin .8s linear infinite;"></div>
+      <div style="font-size:1.08rem;font-weight:700;color:var(--text-main);">Searching verified programs…</div>
+      <div style="margin-top:8px;">Please wait. FreeMoney-AI is checking your situation and loading results.</div>
+      <style>@keyframes fm-spin{to{transform:rotate(360deg)}}</style>
+    </div>`;
   try {
     const caseId = await ensureGuestCase();
     const payload = {
@@ -368,8 +374,11 @@ async function executeSearch() {
   if (!container) return;
 
   container.innerHTML = `
-    <div style="text-align: center; padding: 50px 0;">
-      <div style="font-size: 1.1rem; color: var(--text-muted);">Searching official assistance databases...</div>
+    <div style="text-align:center;padding:42px 18px;color:var(--text-muted);">
+      <div aria-label="Search in progress" style="width:34px;height:34px;margin:0 auto 14px;border:4px solid var(--surface-border);border-top-color:var(--primary);border-radius:50%;animation:fm-spin .8s linear infinite;"></div>
+      <div style="font-size:1.08rem;font-weight:700;color:var(--text-main);">Searching verified programs…</div>
+      <div style="margin-top:8px;">Please wait. FreeMoney-AI is checking official sources and loading results.</div>
+      <style>@keyframes fm-spin{to{transform:rotate(360deg)}}</style>
     </div>
   `;
 
