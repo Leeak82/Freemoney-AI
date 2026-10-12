@@ -50,7 +50,7 @@ Deferred intentionally because no suitable verified opportunity feed was establi
 - [ ] Add ZIP-to-county/city resolution from an authoritative geographic dataset
 - [ ] Review and promote useful catalog candidates one at a time
 - [ ] Configurable LLM-driven eligibility reasoning (Anthropic / OpenAI / Local models)
-- [ ] Natural language query parsing ("I am a single mom in Pierce County needing help with electric bills")
+- [ ] Natural language query parsing ("I am a single mom in my county needing help with electric bills")
 - [ ] Document OCR & pre-qualification verification
 
 ---

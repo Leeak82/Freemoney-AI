@@ -66,21 +66,21 @@ describe('Universal geographic intelligence', () => {
 
   it('requires matching county data for a county opportunity', () => {
     const missing = matcher.matchOpportunity(
-      { country_code: 'US', state: 'WA' },
+      { country_code: 'US', state: 'CO' },
       opportunity({
         location_scope: 'COUNTY',
-        states: ['WA'],
-        counties: ['Pierce County'],
+        states: ['CO'],
+        counties: ['Denver County'],
       })
     );
     expect(missing.level).toBe('UNKNOWN');
 
     const exact = matcher.matchOpportunity(
-      { country_code: 'US', state: 'WA', county: 'Pierce' },
+      { country_code: 'US', state: 'CO', county: 'Denver' },
       opportunity({
         location_scope: 'COUNTY',
-        states: ['WA'],
-        counties: ['Pierce County'],
+        states: ['CO'],
+        counties: ['Denver County'],
       })
     );
     expect(exact.level).toBe('COUNTY');
