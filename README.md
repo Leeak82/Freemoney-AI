@@ -132,7 +132,3 @@ See [Source Registry & Discovery Guide](docs/SOURCES.md) for the full process an
 
 ## 🔒 Security
 No secrets, keys, or private tokens are stored in version control. All configuration is environment-based and validated at runtime.
-
-## Support
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/anthonyleebuilds)
