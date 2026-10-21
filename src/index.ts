@@ -9,6 +9,9 @@ import { naturalLanguageSearchParser } from './search/natural-language-parser.js
 import { GrantsGovSource } from './sources/grants-gov.js';
 import { UsaGovBenefitsSource } from './sources/usa-gov-benefits.js';
 import { businessProviderRegistry } from './business/providers.js';
+import { queryTokens } from './share/relevance.js';
+import { curatedAsRaw, honestNotice, rankAndVerify } from './share/share-search.js';
+import { LinkChecker, linkChecker } from './share/link-checker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,40 +33,6 @@ const SHARE_CATEGORIES = [
 const grantsSource = new GrantsGovSource();
 const benefitsSource = new UsaGovBenefitsSource();
 const shareResultCache = new Map<string, any>();
-
-function tokensFor(value: string): string[] {
-  const stop = new Set(['the','and','for','with','from','that','this','help','need','find','show','what','where','when','how','can','could','would','should','about','have','has','are','was','were','my','our','your','their','into','a','an','to','of','in','on','at','is','it','i','me']);
-  return [...new Set(
-    value.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/[\s-]+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length > 2 && !stop.has(token))
-  )].slice(0, 12);
-}
-
-function rankItems(items: any[], tokens: string[]): any[] {
-  if (!tokens.length) return items;
-  const scored = items.map((item) => {
-    const detail = item.detail || {};
-    const haystack = [
-      item.title,
-      item.description,
-      item.agencyOrProvider,
-      detail.title,
-      detail.description,
-      detail.eligibilitySummary,
-      ...(detail.audiences || []),
-      ...(detail.subcategories || []),
-    ].filter(Boolean).join(' ').toLowerCase();
-    return {
-      item,
-      score: tokens.reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0),
-    };
-  });
-  const matched = scored.filter((entry) => entry.score > 0);
-  return (matched.length ? matched : scored)
-    .sort((a, b) => b.score - a.score)
-    .map((entry) => entry.item);
-}
 
 function mapShareResult(item: any, meta: any, category: string): any {
   const detail = item.detail || {};
@@ -163,48 +132,118 @@ function mapShareResult(item: any, meta: any, category: string): any {
   return result;
 }
 
-async function shareSearch(input: any, rawText = '') {
+const CURATED_META = {
+  id: 'curated-official',
+  name: 'Official federal program directory',
+  organization: 'U.S. federal agencies',
+  baseUrl: 'https://www.usa.gov/benefits',
+};
+
+const PERSONAL_DEFAULT_CATEGORIES = new Set(['other', 'all']);
+
+export async function shareSearch(input: any, rawText = '', deps: { checker?: LinkChecker; now?: Date } = {}) {
+  const checker = deps.checker || linkChecker;
+  const now = deps.now || new Date();
   const intent = input.intent || 'PERSONAL_ASSISTANCE';
   const limit = Math.max(1, Math.min(Number(input.limit || 20), 30));
   const offset = Math.max(0, Number(input.offset || 0));
-  const categories = [
+  const requested = [
     ...(Array.isArray(input.categories) ? input.categories : []),
     ...(input.category ? [input.category] : []),
+  ].filter((c: string) => c && !PERSONAL_DEFAULT_CATEGORIES.has(c));
+  const categories = intent === 'BUSINESS_ASSISTANCE' && requested.length === 0 ? ['small-business'] : requested;
+  const audiences = [
+    ...(Array.isArray(input.audiences) ? input.audiences : []),
+    ...(input.user_profile?.is_veteran ? ['VETERAN'] : []),
+    ...(input.user_profile?.is_disabled ? ['DISABLED'] : []),
+    ...(input.user_profile?.is_student ? ['STUDENT'] : []),
+    ...(intent === 'BUSINESS_ASSISTANCE' ? ['SMALL_BUSINESS'] : []),
   ];
-  const text = [
-    rawText,
-    input.keyword || '',
-    categories.join(' '),
-    Array.isArray(input.audiences) ? input.audiences.join(' ') : '',
-    intent === 'BUSINESS_ASSISTANCE' ? 'small business grant startup funding' : '',
-  ].filter(Boolean).join(' ');
-  const tokens = tokensFor(text);
-  const category = categories[0] || (intent === 'BUSINESS_ASSISTANCE' ? 'business-grants' : 'other');
-  let results: any[] = [];
+  const tokens = queryTokens([rawText, input.keyword || ''].join(' '));
+  const state = input.state ? String(input.state).trim().toUpperCase() : undefined;
 
+  const pools: Array<{ sourceKey: 'usa-gov-benefits' | 'grants-gov' | 'curated'; items: any[] }> = [
+    { sourceKey: 'curated', items: curatedAsRaw() },
+  ];
   if (intent === 'BUSINESS_ASSISTANCE') {
-    const keyword = tokens.slice(0, 5).join(' ') || 'small business';
-    const page = await grantsSource.fetchOpportunities({
-      keyword,
-      rows: Math.min(25, limit + offset + 5),
-      startRecordNum: 0,
-      oppStatuses: 'posted',
-    });
-    results = rankItems(page.items, tokens)
-      .map((item) => mapShareResult(item, grantsSource.getSourceMetadata(), category));
+    try {
+      const keyword = tokens.filter((t) => !['business', 'small'].includes(t)).slice(0, 4).join(' ') || 'small business';
+      const page = await grantsSource.fetchOpportunities({ keyword, rows: 25, startRecordNum: 0, oppStatuses: 'posted' });
+      pools.push({ sourceKey: 'grants-gov', items: page.items });
+    } catch (err) {
+      console.error('[share search] grants.gov unavailable', err);
+    }
   } else {
-    const page = await benefitsSource.fetchOpportunities({ rows: 100, startRecordNum: 0 });
-    results = rankItems(page.items, tokens)
-      .map((item) => mapShareResult(item, benefitsSource.getSourceMetadata(), category));
+    try {
+      const page = await benefitsSource.fetchOpportunities({ rows: 100, startRecordNum: 0 });
+      pools.push({ sourceKey: 'usa-gov-benefits', items: page.items });
+    } catch (err) {
+      console.error('[share search] USA.gov feed unavailable', err);
+    }
   }
 
-  const unique = [...new Map(results.map((item) => [item.opportunity.id, item])).values()];
+  const { results: ranked, dropped } = await rankAndVerify(
+    pools,
+    { categories, tokens, audiences, state, limit: limit + offset },
+    checker,
+    now,
+  );
+
+  const results = ranked.map((r) => {
+    const meta = r.sourceKey === 'curated' ? CURATED_META
+      : r.sourceKey === 'grants-gov' ? grantsSource.getSourceMetadata() : benefitsSource.getSourceMetadata();
+    const mapped = mapShareResult(r.raw, meta, r.matched_categories[0] || r.raw.detail?.category || categories[0] || 'other');
+    const verifiedDay = (r.link?.checkedAt || now.toISOString()).slice(0, 10);
+    mapped.opportunity.category = r.matched_categories[0] || mapped.opportunity.category;
+    mapped.match_score = r.score;
+    mapped.confidence = r.score >= 75 ? 'HIGH' : r.score >= 55 ? 'MEDIUM' : 'LOW';
+    mapped.why_you_may_qualify = [
+      ...r.reasons,
+      'Confirm the published eligibility rules on the official site before applying.',
+    ];
+    mapped.source_provenance.last_verified = verifiedDay;
+    mapped.source_provenance.link_status = r.link?.state || 'UNVERIFIED';
+    const stateLookup = r.raw.detail?.sourceMetadata?.stateLookupUrl;
+    if (state && stateLookup) {
+      mapped.application_links.push({ url: stateLookup, type: 'STATE_OFFICE_LOOKUP', official: true, verified_at: null });
+    }
+    return mapped;
+  });
+
+  const page = results.slice(offset, offset + limit);
   return {
-    total: unique.length,
+    total: results.length,
     limit,
     offset,
-    results: unique.slice(offset, offset + limit),
+    results: page,
+    filtered_out: dropped,
+    ...honestNotice(results.length, { categories, state }),
   };
+}
+
+let shareRefreshTimer: NodeJS.Timeout | null = null;
+
+/** Re-pulls source feeds and re-checks every program link so data is never stale. */
+export async function refreshShareData(): Promise<void> {
+  try {
+    const page = await benefitsSource.fetchOpportunities({ rows: 100, startRecordNum: 0 });
+    const urls = [
+      ...curatedAsRaw().map((r) => r.sourceUrl as string),
+      ...page.items.map((i: any) => i.detail?.applicationUrl || i.sourceUrl).filter(Boolean),
+    ];
+    const checked = await linkChecker.checkAll(urls);
+    const dead = [...checked.values()].filter((r) => r.state === 'DEAD').length;
+    console.log(`[refresh] ${page.items.length} USA.gov records, ${checked.size} links checked, ${dead} dead`);
+  } catch (err) {
+    console.error('[refresh] failed', err);
+  }
+}
+
+function startShareRefresh() {
+  if (shareRefreshTimer || process.env.NODE_ENV === 'test' || process.env.VITEST) return;
+  void refreshShareData();
+  shareRefreshTimer = setInterval(() => void refreshShareData(), 24 * 60 * 60 * 1000);
+  shareRefreshTimer.unref();
 }
 
 function shareChecklist() {
@@ -240,6 +279,7 @@ export function createApp(): express.Application {
   app.use('/api', caseRouter);
 
   const shareMode = process.env.SHARE_MODE === 'true';
+  if (shareMode) startShareRefresh();
 
   if (shareMode) {
     app.get('/api/categories', (req, res) => {

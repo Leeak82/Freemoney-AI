@@ -347,7 +347,7 @@ async function executeNaturalLanguageSearch() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.details || data.error || 'Search failed');
     state.intent = data.interpretation?.search?.intent || state.intent;
-    renderOpportunityCards(data.results || [], container);
+    renderOpportunityCards(data.results || [], container, data);
     const detected = data.interpretation?.detected || {};
     const location = detected.location || {};
     const signals = [
@@ -403,7 +403,7 @@ async function executeSearch() {
     });
 
     const data = await res.json();
-    renderOpportunityCards(data.results || [], container);
+    renderOpportunityCards(data.results || [], container, data);
   } catch (err) {
     container.innerHTML = `
       <div style="color: var(--danger); text-align: center; padding: 30px;">
@@ -413,8 +413,22 @@ async function executeSearch() {
   }
 }
 
-function renderOpportunityCards(items, container) {
+function renderSearchNotice(data) {
+  if (!data || (!data.notice && !(data.fallback_resources || []).length)) return '';
+  const links = (data.fallback_resources || []).map((r) =>
+    `<li><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.title)}</a> - ${escapeHtml(r.description)}</li>`).join('');
+  return `<div class="search-card" style="margin-bottom:18px;">
+    ${data.notice ? `<div>${escapeHtml(data.notice)}</div>` : ''}
+    ${links ? `<ul style="margin:10px 0 0 18px;color:var(--text-muted);">${links}</ul>` : ''}
+  </div>`;
+}
+
+function renderOpportunityCards(items, container, data) {
   if (items.length === 0) {
+    if (data && (data.notice || (data.fallback_resources || []).length)) {
+      container.innerHTML = renderSearchNotice(data);
+      return;
+    }
     container.innerHTML = `
       <div style="text-align: center; padding: 40px 0; background: var(--card-bg); border-radius: 12px; border: 1px dashed var(--surface-border);">
         <h3 style="margin-bottom: 8px;">No verified opportunities found for this search.</h3>
@@ -427,10 +441,10 @@ function renderOpportunityCards(items, container) {
     return;
   }
 
-  container.innerHTML = `
+  container.innerHTML = `${renderSearchNotice(data)}
     <div class="results-header">
       <div class="results-count">Found <strong>${items.length}</strong> Verified Opportunities</div>
-      <div style="font-size: 0.85rem; color: var(--text-muted);">Sorted by Match & Source Trust</div>
+      <div style="font-size: 0.85rem; color: var(--text-muted);">Current programs only • Sorted by match</div>
     </div>
     <div class="opportunities-list">
       ${items

@@ -22,7 +22,7 @@ export interface NaturalLanguageInterpretation {
   warnings: string[];
 }
 
-const STATE_CODES: Record<string, string> = {
+export const STATE_CODES: Record<string, string> = {
   alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA',
   colorado: 'CO', connecticut: 'CT', delaware: 'DE', florida: 'FL', georgia: 'GA',
   hawaii: 'HI', idaho: 'ID', illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS',
