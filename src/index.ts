@@ -13,7 +13,7 @@ import { queryTokens } from './share/relevance.js';
 import { curatedAsRaw, honestNotice, rankAndVerify, stateProgramsAsRaw } from './share/share-search.js';
 import { detectState, normalizeStateInput } from './share/state-detect.js';
 import { STATE_PROGRAMS } from './share/state-programs.js';
-import { ensureDatabaseReady } from './db/ready.js';
+import crypto from 'node:crypto';
 import { LinkChecker, linkChecker } from './share/link-checker.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,6 +36,11 @@ const SHARE_CATEGORIES = [
 const grantsSource = new GrantsGovSource();
 const benefitsSource = new UsaGovBenefitsSource();
 const shareResultCache = new Map<string, any>();
+const shareSessions = new Map<string, { cases: Map<string, any> }>();
+
+function trimMap(map: Map<any, any>, max: number) {
+  while (map.size > max) map.delete(map.keys().next().value);
+}
 
 function mapShareResult(item: any, meta: any, category: string): any {
   const detail = item.detail || {};
@@ -132,6 +137,7 @@ function mapShareResult(item: any, meta: any, category: string): any {
   };
 
   shareResultCache.set(id, result);
+  trimMap(shareResultCache, 2000);
   return result;
 }
 
@@ -284,19 +290,61 @@ export function createApp(): express.Application {
     res.json({ status: 'ok', service: 'freemoney-ai' });
   });
 
-  // Private guest/account case routes are available in both SHARE_MODE and full mode.
   if (process.env.SHARE_MODE === 'true') {
-    void ensureDatabaseReady().catch((err) => console.error('[db] not ready', err));
-    app.use(['/api/session', '/api/cases'], async (_req, res, next) => {
-      try {
-        await ensureDatabaseReady();
-        next();
-      } catch (err: any) {
-        res.status(503).json({ error: 'Private sessions are temporarily unavailable. Please try again.', details: err.message });
-      }
+    // Share mode runs on a tiny free server with no database: an embedded database there runs out of
+    // memory and crashes the process (which the proxy reports as an empty 502). Guest sessions and
+    // cases are kept in memory instead; nothing personal is stored and they reset on restart.
+    app.post('/api/session/guest', (_req, res) => {
+      const token = crypto.randomBytes(32).toString('base64url');
+      const expiresAt = new Date(Date.now() + 30 * 86400000).toISOString();
+      shareSessions.set(token, { cases: new Map() });
+      trimMap(shareSessions, 5000);
+      res.status(201).json({
+        session_type: 'GUEST',
+        token,
+        expires_at: expiresAt,
+        notice: 'This private guest session can be used without providing a name, email, or password.',
+      });
     });
+    const shareActor = (req: express.Request) => {
+      const header = req.headers.authorization || '';
+      const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+      let session = shareSessions.get(token);
+      if (!session && token) {
+        // Server restarted since the token was issued: recreate an empty session transparently.
+        session = { cases: new Map() };
+        shareSessions.set(token, session);
+      }
+      return session;
+    };
+    app.get('/api/cases', (req, res) => {
+      const session = shareActor(req);
+      if (!session) { res.status(401).json({ error: 'A valid private guest session is required.' }); return; }
+      res.json({ cases: [...session.cases.values()] });
+    });
+    app.post('/api/cases', (req, res) => {
+      const session = shareActor(req);
+      if (!session) { res.status(401).json({ error: 'A valid private guest session is required.' }); return; }
+      const now = new Date().toISOString();
+      const c = { id: crypto.randomUUID(), title: String(req.body?.title || 'My assistance search').slice(0, 200), intent: req.body?.intent || null, status: 'OPEN', created_at: now, updated_at: now };
+      session.cases.set(c.id, c);
+      trimMap(session.cases, 50);
+      res.status(201).json({ case: c });
+    });
+    app.get('/api/cases/:id', (req, res) => {
+      const c = shareActor(req)?.cases.get(req.params.id);
+      if (!c) { res.status(404).json({ error: 'Case not found' }); return; }
+      res.json({ case: c, searches: [] });
+    });
+    app.get('/api/cases/:id/history', (req, res) => {
+      const c = shareActor(req)?.cases.get(req.params.id);
+      if (!c) { res.status(404).json({ error: 'Case not found' }); return; }
+      res.json({ case: c, history: [] });
+    });
+  } else {
+    // Private guest/account case routes (database-backed) in full mode.
+    app.use('/api', caseRouter);
   }
-  app.use('/api', caseRouter);
 
   const shareMode = process.env.SHARE_MODE === 'true';
   if (shareMode) startShareRefresh();

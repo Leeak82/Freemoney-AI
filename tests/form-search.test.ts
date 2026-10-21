@@ -46,10 +46,13 @@ describe('Find Assistance form (share mode)', () => {
     expect(missing.headers['content-type']).toMatch(/json/);
   });
 
-  it('guest session works even when the configured database is unreachable', async () => {
+  it('guest session and case work without any database in share mode', async () => {
     const res = await request(app).post('/api/session/guest');
     expect(res.headers['content-type']).toMatch(/json/);
     expect(res.status).toBe(201);
     expect(res.body.token).toBeTruthy();
+    const c = await request(app).post('/api/cases').set('Authorization', `Bearer ${res.body.token}`).send({ title: 'x' });
+    expect(c.status).toBe(201);
+    expect(c.body.case.id).toBeTruthy();
   }, 30_000);
 });
