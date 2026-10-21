@@ -179,7 +179,7 @@ export function honestNotice(count: number, q: { categories: string[]; state?: s
   } else if (count < 3) {
     parts.push('Only a few current official programs matched closely. The resources below can find more local options.');
   }
-  if (q.state) {
+  if (q.state && count > 0) {
     const name = stateName(q.state);
     parts.push(`Showing ${name}'s official state offices first, then national programs available in ${name}. Call or text 211 for county and city programs.`);
   }

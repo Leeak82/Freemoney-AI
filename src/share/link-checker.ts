@@ -6,10 +6,12 @@ type Fetcher = (url: string, init: RequestInit) => Promise<{ status: number }>;
 
 export class LinkChecker {
   private cache = new Map<string, { result: LinkResult; expires: number }>();
+  private inflight = new Map<string, Promise<LinkResult>>();
   constructor(
     private readonly fetcher: Fetcher = (url, init) => fetch(url, init),
     private readonly ttlMs = 12 * 60 * 60 * 1000,
-    private readonly timeoutMs = 6000,
+    private readonly timeoutMs = 8000,
+    private readonly concurrency = 8,
   ) {}
 
   private async request(url: string, method: 'HEAD' | 'GET'): Promise<number> {
@@ -31,6 +33,14 @@ export class LinkChecker {
   public async check(url: string): Promise<LinkResult> {
     const hit = this.cache.get(url);
     if (hit && hit.expires > Date.now()) return hit.result;
+    const pending = this.inflight.get(url);
+    if (pending) return pending;
+    const p = this.doCheck(url).finally(() => this.inflight.delete(url));
+    this.inflight.set(url, p);
+    return p;
+  }
+
+  private async doCheck(url: string): Promise<LinkResult> {
     let result: LinkResult;
     try {
       let status = await this.request(url, 'HEAD');
@@ -64,7 +74,16 @@ export class LinkChecker {
   public async checkAll(urls: string[]): Promise<Map<string, LinkResult>> {
     const unique = [...new Set(urls.filter(Boolean))];
     const out = new Map<string, LinkResult>();
-    await Promise.all(unique.map(async (u) => out.set(u, await this.check(u))));
+    // Small worker pool: hundreds of parallel requests make a small server time out and
+    // wrongly mark healthy links as unverified.
+    let next = 0;
+    const worker = async () => {
+      while (next < unique.length) {
+        const u = unique[next++];
+        out.set(u, await this.check(u));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(this.concurrency, unique.length) }, worker));
     return out;
   }
 }
