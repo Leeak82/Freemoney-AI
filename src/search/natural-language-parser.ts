@@ -1,3 +1,4 @@
+import { detectState as detectStateSafely } from '../share/state-detect.js';
 import {
   BusinessProfile,
   FundingPurpose,
@@ -81,15 +82,7 @@ function addUnique<T>(items: T[], item: T): void {
 }
 
 function detectState(text: string): string | undefined {
-  const lower = text.toLowerCase();
-  for (const [name, code] of Object.entries(STATE_CODES)) {
-    if (new RegExp(`\\b${name.replace(/ /g, '\\s+')}\\b`, 'i').test(lower)) return code;
-  }
-  const commaCode = text.match(/,\s*([A-Za-z]{2})\b/);
-  if (commaCode && VALID_STATE_CODES.has(commaCode[1].toUpperCase())) return commaCode[1].toUpperCase();
-  const explicitCode = text.match(/\b(?:state of|in)\s+([A-Za-z]{2})\b/i);
-  if (explicitCode && VALID_STATE_CODES.has(explicitCode[1].toUpperCase())) return explicitCode[1].toUpperCase();
-  return undefined;
+  return detectStateSafely(text);
 }
 
 function detectCounty(text: string): string | undefined {

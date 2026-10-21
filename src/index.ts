@@ -10,7 +10,9 @@ import { GrantsGovSource } from './sources/grants-gov.js';
 import { UsaGovBenefitsSource } from './sources/usa-gov-benefits.js';
 import { businessProviderRegistry } from './business/providers.js';
 import { queryTokens } from './share/relevance.js';
-import { curatedAsRaw, honestNotice, rankAndVerify } from './share/share-search.js';
+import { curatedAsRaw, honestNotice, rankAndVerify, stateProgramsAsRaw } from './share/share-search.js';
+import { detectState, normalizeStateInput } from './share/state-detect.js';
+import { STATE_PROGRAMS } from './share/state-programs.js';
 import { LinkChecker, linkChecker } from './share/link-checker.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -160,9 +162,12 @@ export async function shareSearch(input: any, rawText = '', deps: { checker?: Li
     ...(intent === 'BUSINESS_ASSISTANCE' ? ['SMALL_BUSINESS'] : []),
   ];
   const tokens = queryTokens([rawText, input.keyword || ''].join(' '));
-  const state = input.state ? String(input.state).trim().toUpperCase() : undefined;
+  const state = normalizeStateInput(input.state)
+    || normalizeStateInput(input.user_profile?.state)
+    || detectState(rawText);
 
-  const pools: Array<{ sourceKey: 'usa-gov-benefits' | 'grants-gov' | 'curated'; items: any[] }> = [
+  const pools: Array<{ sourceKey: 'usa-gov-benefits' | 'grants-gov' | 'curated' | 'state'; items: any[] }> = [
+    { sourceKey: 'state', items: intent === 'BUSINESS_ASSISTANCE' ? [] : stateProgramsAsRaw(state) },
     { sourceKey: 'curated', items: curatedAsRaw() },
   ];
   if (intent === 'BUSINESS_ASSISTANCE') {
@@ -192,7 +197,8 @@ export async function shareSearch(input: any, rawText = '', deps: { checker?: Li
   const results = ranked.map((r) => {
     const meta = r.sourceKey === 'curated' ? CURATED_META
       : r.sourceKey === 'grants-gov' ? grantsSource.getSourceMetadata() : benefitsSource.getSourceMetadata();
-    const mapped = mapShareResult(r.raw, meta, r.matched_categories[0] || r.raw.detail?.category || categories[0] || 'other');
+    const meta2 = r.sourceKey === 'state' ? { id: 'state-official', name: 'Official state program directory', organization: r.raw.agencyOrProvider, baseUrl: r.raw.sourceUrl } : meta;
+    const mapped = mapShareResult(r.raw, meta2, r.matched_categories[0] || r.raw.detail?.category || categories[0] || 'other');
     const verifiedDay = (r.link?.checkedAt || now.toISOString()).slice(0, 10);
     mapped.opportunity.category = r.matched_categories[0] || mapped.opportunity.category;
     mapped.match_score = r.score;
@@ -217,6 +223,7 @@ export async function shareSearch(input: any, rawText = '', deps: { checker?: Li
     offset,
     results: page,
     filtered_out: dropped,
+    detected_state: state || null,
     ...honestNotice(results.length, { categories, state }),
   };
 }
@@ -229,6 +236,7 @@ export async function refreshShareData(): Promise<void> {
     const page = await benefitsSource.fetchOpportunities({ rows: 100, startRecordNum: 0 });
     const urls = [
       ...curatedAsRaw().map((r) => r.sourceUrl as string),
+      ...STATE_PROGRAMS.map((p) => p.url),
       ...page.items.map((i: any) => i.detail?.applicationUrl || i.sourceUrl).filter(Boolean),
     ];
     const checked = await linkChecker.checkAll(urls);

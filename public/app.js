@@ -701,7 +701,7 @@ async function renderProfileView() {
             </div>
             <div>
               <label class="input-label">ZIP Code</label>
-              <input type="text" id="prof-zip" class="form-control" placeholder="e.g. 98402" value="${prof.zip_code || ''}">
+              <input type="text" id="prof-zip" class="form-control" placeholder="e.g. 43215" value="${prof.zip_code || ''}">
             </div>
           </div>
 

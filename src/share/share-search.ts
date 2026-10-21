@@ -1,11 +1,51 @@
 import { CURATED_PROGRAMS, FALLBACK_RESOURCES } from './curated-programs.js';
 import { Candidate, MIN_SCORE, expiryReason, normalizeCategories, scoreCandidate } from './relevance.js';
 import { LinkChecker, LinkResult } from './link-checker.js';
-import { STATE_CODES } from '../search/natural-language-parser.js';
+import { STATE_NAMES, stateName } from './state-detect.js';
+import { STATE_KIND_CATEGORIES, STATE_PROGRAMS } from './state-programs.js';
 
-function stateName(code: string): string {
-  const hit = Object.entries(STATE_CODES).find(([, c]) => c === code.toUpperCase());
-  return hit ? hit[0].replace(/\b\w/g, (m) => m.toUpperCase()) : code;
+/** Official programs for ONE state only; other states' programs are never returned. */
+export function stateProgramsAsRaw(state?: string): RawLike[] {
+  if (!state) return [];
+  return STATE_PROGRAMS.filter((p) => p.state === state.toUpperCase()).map((p) => ({
+    sourceOpportunityId: `state-${p.state}-${p.kind}`,
+    sourceOpportunityNumber: `state-${p.state}-${p.kind}`,
+    sourceUrl: p.url,
+    title: p.title,
+    description: p.description,
+    agencyOrProvider: p.provider,
+    oppStatus: 'active',
+    detail: {
+      title: p.title,
+      description: p.phone ? `${p.description} Phone: ${p.phone}.` : p.description,
+      providerName: p.provider,
+      sourceUrl: p.url,
+      applicationUrl: p.url,
+      applicationUrlType: 'OFFICIAL_STATE_PROGRAM',
+      applicationUrlVerified: true,
+      category: STATE_KIND_CATEGORIES[p.kind][0],
+      subcategories: STATE_KIND_CATEGORIES[p.kind],
+      audiences: ['INDIVIDUAL'],
+      locationScope: 'STATE',
+      countryCode: 'US',
+      states: [p.state],
+      status: 'ACTIVE',
+      contactInfo: p.phone ? { phone: p.phone } : null,
+      sourceMetadata: { curated: true, stateProgram: true, kind: p.kind, phone: p.phone, directorySource: p.sourceUrl, lastVerified: p.lastVerified },
+    },
+  }));
+}
+
+/** Returns the state a title is specifically about, if any (e.g. "State of Kansas Network"). */
+function titleState(title: string): string | undefined {
+  for (const [code, name] of Object.entries(STATE_NAMES).sort((a, b) => b[1].length - a[1].length)) {
+    if (new RegExp(`\\b${name.replace(/ /g, '\\s+')}\\b`, 'i').test(title)) {
+      if (code === 'VA' && /west\s+virginia/i.test(title)) continue;
+      if (code === 'WA' && /washington,?\s*d\.?c/i.test(title)) return 'DC';
+      return code;
+    }
+  }
+  return undefined;
 }
 
 export interface RawLike {
@@ -22,7 +62,7 @@ export interface RawLike {
 
 export interface RankedRaw {
   raw: RawLike;
-  sourceKey: 'usa-gov-benefits' | 'grants-gov' | 'curated';
+  sourceKey: 'usa-gov-benefits' | 'grants-gov' | 'curated' | 'state';
   score: number;
   reasons: string[];
   matched_categories: string[];
@@ -89,14 +129,17 @@ export async function rankAndVerify(
   q: RankInput,
   checker: LinkChecker,
   now = new Date(),
-): Promise<{ results: RankedRaw[]; dropped: { expired: number; offTopic: number; deadLinks: number } }> {
-  const dropped = { expired: 0, offTopic: 0, deadLinks: 0 };
+): Promise<{ results: RankedRaw[]; dropped: { expired: number; offTopic: number; deadLinks: number; otherState: number } }> {
+  const dropped = { expired: 0, offTopic: 0, deadLinks: 0, otherState: 0 };
   const scored: RankedRaw[] = [];
   const seenUrlTitle = new Set<string>();
   for (const pool of pools) {
     for (const raw of pool.items) {
       const c = toCandidate(raw);
       if (expiryReason(c, now)) { dropped.expired++; continue; }
+      const itemStates: string[] = raw.detail?.states || [];
+      const namedState = pool.sourceKey === 'state' ? itemStates[0] : titleState(c.title);
+      if (namedState && namedState !== q.state) { dropped.otherState++; continue; }
       const s = scoreCandidate(c, { categories: q.categories, tokens: q.tokens, audiences: q.audiences });
       if (!s || s.score < MIN_SCORE) { dropped.offTopic++; continue; }
       const key = `${(c.url || '').toLowerCase()}|${c.title.toLowerCase()}`;
@@ -104,8 +147,10 @@ export async function rankAndVerify(
       seenUrlTitle.add(key);
       let score = s.score;
       if (pool.sourceKey === 'curated') score += 5; // evergreen, directly applicable programs
-      if (q.state && new RegExp(`\\b${q.state}\\b`, 'i').test(`${c.title} ${c.description}`)) score += 10;
-      scored.push({ raw, sourceKey: pool.sourceKey, score: Math.min(100, score), reasons: s.reasons, matched_categories: s.matched_categories, link: null });
+      // The person's own state office is the most actionable result: rank above national programs.
+      if (pool.sourceKey === 'state') score += raw.detail?.sourceMetadata?.kind === '211' ? 15 : 30;
+      else if (q.state && namedState === q.state) score += 10;
+      scored.push({ raw, sourceKey: pool.sourceKey, score, reasons: s.reasons, matched_categories: s.matched_categories, link: null });
     }
   }
   scored.sort((a, b) => b.score - a.score);
@@ -116,11 +161,13 @@ export async function rankAndVerify(
   for (const r of window) {
     const link = links.get(toCandidate(r.raw).url || '') || null;
     if (link?.state === 'DEAD') { dropped.deadLinks++; continue; }
-    if (link?.state === 'UNVERIFIED') r.score = Math.max(0, r.score - 10);
+    if (link?.state === 'UNVERIFIED' && r.sourceKey !== 'state') r.score = Math.max(0, r.score - 10);
     r.link = link;
     results.push(r);
   }
   results.sort((a, b) => b.score - a.score);
+  // Without capping at 100 before sorting, state boosts can't be lost; cap for display only.
+  for (const r of results) r.score = Math.min(100, r.score);
   return { results: results.slice(0, q.limit), dropped };
 }
 
@@ -134,10 +181,10 @@ export function honestNotice(count: number, q: { categories: string[]; state?: s
   }
   if (q.state) {
     const name = stateName(q.state);
-    parts.push(`These are national programs that are available in ${name}; most are applied for through your state or local office. Call or text 211 for ${name}-specific and local programs.`);
+    parts.push(`Showing ${name}'s official state offices first, then national programs available in ${name}. Call or text 211 for county and city programs.`);
   }
   return {
     notice: parts.join(' ') || null,
-    fallback_resources: count < 3 || q.state ? FALLBACK_RESOURCES : [],
+    fallback_resources: count < 3 ? FALLBACK_RESOURCES : [],
   };
 }

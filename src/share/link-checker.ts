@@ -37,8 +37,19 @@ export class LinkChecker {
       if (status === 405 || status === 403 || status === 404 || status >= 500) {
         status = await this.request(url, 'GET');
       }
-      const state: LinkState = status === 404 || status === 410 ? 'DEAD'
+      let state: LinkState = status === 404 || status === 410 ? 'DEAD'
         : status >= 200 && status < 400 ? 'OK' : 'UNVERIFIED';
+      if (state === 'DEAD') {
+        // Some government firewalls answer every request from cloud servers with 404, even the
+        // home page. Only call a page dead when the rest of the site responds normally.
+        try {
+          const root = new URL('/', url).toString();
+          const rootStatus = root === url ? status : await this.request(root, 'GET');
+          if (!(rootStatus >= 200 && rootStatus < 400)) state = 'UNVERIFIED';
+        } catch {
+          state = 'UNVERIFIED';
+        }
+      }
       result = { state, status, checkedAt: new Date().toISOString() };
     } catch (err: any) {
       const code = err?.cause?.code || err?.code || '';

@@ -110,7 +110,7 @@ USA.gov Benefit Finder records have `status: "UNKNOWN"` because the source does 
     {
       "user_id": "00000000-0000-4000-8000-000000000001",
       "state": "WA",
-      "zip_code": "98402",
+      "zip_code": "43215",
       "household_size": 2,
       "income_range": "25k-50k",
       "housing_status": "RENTER",

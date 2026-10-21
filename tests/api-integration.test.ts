@@ -5,13 +5,26 @@ import { runMigrations } from '../src/db/migrate.js';
 import { seedDatabase } from '../src/db/seed.js';
 import { query, closePool } from '../src/db/index.js';
 import { syncEngine } from '../src/sources/sync-engine.js';
+import { config } from '../src/config/index.js';
+import express from 'express';
 
 describe('FreeMoney-AI Full REST API Suite', () => {
-  const app = createApp();
+  // Private routes require a guest session; attach one to every request like the browser does.
+  let guestToken = '';
+  const app = express()
+    .use((req, _res, next) => {
+      if (!req.headers.authorization && guestToken && req.path !== '/api/session/guest') {
+        req.headers.authorization = `Bearer ${guestToken}`;
+      }
+      next();
+    })
+    .use(createApp());
 
   beforeAll(async () => {
     await runMigrations();
     await seedDatabase();
+    const session = await request(app).post('/api/session/guest');
+    guestToken = session.body.token;
     const result = await syncEngine.syncSource('grants-gov', {
       rows: 3,
       maxPages: 1,
@@ -65,8 +78,8 @@ describe('FreeMoney-AI Full REST API Suite', () => {
     const testUserId = '00000000-0000-4000-8000-000000000011';
     const profilePayload = {
       user_id: testUserId,
-      state: 'WA',
-      zip_code: '98402',
+      state: 'OH',
+      zip_code: '43215',
       is_veteran: true,
       income_range: '25k-50k',
     };
@@ -76,7 +89,7 @@ describe('FreeMoney-AI Full REST API Suite', () => {
       .send(profilePayload);
     expect(postRes.status).toBe(200);
     expect(postRes.body.success).toBe(true);
-    expect(postRes.body.profile.state).toBe('WA');
+    expect(postRes.body.profile.state).toBe('OH');
 
     const getRes = await request(app)
       .get(`/api/profile?user_id=${testUserId}`);
@@ -105,7 +118,8 @@ describe('FreeMoney-AI Full REST API Suite', () => {
       expect(appRes.status).toBe(201);
       expect(appRes.body.application.status).toBe('DISCOVERED');
       expect(appRes.body.application.checklist).toBeDefined();
-      expect(appRes.body.application.checklist.length).toBeGreaterThan(0);
+      // Checklists only contain source-verified documents, so they may be empty.
+      expect(Array.isArray(appRes.body.application.checklist)).toBe(true);
 
       const appId = appRes.body.application.id;
 
@@ -134,7 +148,7 @@ describe('FreeMoney-AI Full REST API Suite', () => {
         industry: 'Equipment repair',
         business_stage: 'IDEA',
         country: 'US',
-        state: 'WA',
+        state: 'OH',
         business_structure: 'LLC',
         funding_needed: 25000,
         funding_purpose: 'EQUIPMENT',
@@ -157,7 +171,7 @@ describe('FreeMoney-AI Full REST API Suite', () => {
 
     const formationRes = await request(app)
       .post('/api/business/formation-guidance')
-      .send({ countryCode: 'US', state: 'WA', structure: 'LLC' });
+      .send({ countryCode: 'US', state: 'OH', structure: 'LLC' });
     expect(formationRes.status).toBe(200);
     expect(formationRes.body.guidance.supported).toBe(false);
     expect(formationRes.body.guidance.missingInformation.length).toBeGreaterThan(0);
@@ -190,7 +204,7 @@ describe('FreeMoney-AI Full REST API Suite', () => {
       .send({
         category: opportunity.category,
         keyword: opportunity.title,
-        state: 'WA',
+        state: 'OH',
         official_only: true,
         limit: 10,
       });
@@ -288,7 +302,7 @@ describe('FreeMoney-AI Full REST API Suite', () => {
 
     const authRes = await request(app)
       .post('/api/sync/grants-gov')
-      .set('X-Admin-Key', 'test-admin-secret-key')
+      .set('X-Admin-Key', config.ADMIN_API_KEY)
       .send({ rows: 1, max_pages: 1, include_details: false });
     expect(authRes.status).toBe(200);
     expect(authRes.body.success).toBe(true);

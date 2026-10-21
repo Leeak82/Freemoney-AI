@@ -232,7 +232,7 @@ export class ApplicationService {
     }
 
     const updateRes = await query<ApplicationRecord>(
-      `UPDATE applications SET ${sets.join(', ')} WHERE id = $1 AND user_id = ${idx} RETURNING *;`,
+      `UPDATE applications SET ${sets.join(', ')} WHERE id = $1 AND user_id = $${idx} RETURNING *;`,
       [...params, userId]
     );
 
