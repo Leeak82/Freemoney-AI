@@ -156,7 +156,8 @@ export async function rankAndVerify(
   scored.sort((a, b) => b.score - a.score);
   // Check links for a few more than needed so dead ones can be replaced.
   const window = scored.slice(0, Math.max(q.limit * 2, 10));
-  const links = await checker.checkAll(window.map((r) => toCandidate(r.raw).url || ''));
+  // Never let link checks slow a search down: use what's known within 2.5s.
+  const links = await checker.checkAllWithin(window.map((r) => toCandidate(r.raw).url || ''), 2500);
   const results: RankedRaw[] = [];
   for (const r of window) {
     const link = links.get(toCandidate(r.raw).url || '') || null;

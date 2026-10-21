@@ -44,25 +44,68 @@ function safeExternalUrl(value) {
   }
 }
 
+
+// Fetch JSON safely: retries once on cold start / gateway errors and never shows raw parse errors.
+const FRIENDLY_ERROR = 'The server is waking up or briefly busy. Please wait a few seconds and try again.';
+// Any remaining res.json() call on an empty/HTML body (cold start, gateway error) gets a friendly message
+// instead of the browser's raw "JSON.parse: unexpected end of data".
+(() => {
+  const nativeJson = Response.prototype.json;
+  Response.prototype.json = async function () {
+    try { return await nativeJson.call(this); } catch { const e = new Error(FRIENDLY_ERROR); e.friendly = true; throw e; }
+  };
+})();
+
+async function fetchJson(url, options = {}, { retries = 1 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (err) {
+      if (attempt < retries) { await new Promise((r) => setTimeout(r, 3000)); continue; }
+      const e = new Error(FRIENDLY_ERROR); e.friendly = true; throw e;
+    }
+    const type = res.headers.get('content-type') || '';
+    let data = null;
+    if (type.includes('application/json')) {
+      try { data = await res.json(); } catch { data = null; }
+    }
+    if ((!data || [502, 503, 504].includes(res.status)) && attempt < retries) {
+      await new Promise((r) => setTimeout(r, 3000));
+      continue;
+    }
+    if (!data) { const e = new Error(FRIENDLY_ERROR); e.friendly = true; e.status = res.status; throw e; }
+    if (!res.ok) {
+      const e = new Error(data.error || FRIENDLY_ERROR); e.status = res.status; e.data = data; throw e;
+    }
+    return data;
+  }
+}
+
+function friendlyErrorHtml(message) {
+  return `<div style="text-align:center;padding:30px;">
+    <div style="color:var(--danger);margin-bottom:12px;">${escapeHtml(message || FRIENDLY_ERROR)}</div>
+    <button class="btn btn-secondary" onclick="(window.__fmRetry||(()=>location.reload()))()">Try again</button>
+  </div>`;
+}
+
 function privateHeaders(extra = {}) {
   return state.sessionToken ? { ...extra, Authorization: `Bearer ${state.sessionToken}` } : extra;
 }
 
 async function ensureGuestCase() {
   if (!state.sessionToken) {
-    const sessionRes = await fetch(`${API_BASE}/session/guest`, { method: 'POST' });
-    const session = await sessionRes.json();
-    if (!sessionRes.ok || !session.token) throw new Error(session.error || 'Could not start private guest session');
+    const session = await fetchJson(`${API_BASE}/session/guest`, { method: 'POST' });
+    if (!session.token) throw new Error('Could not start private guest session');
     state.sessionToken = session.token;
     localStorage.setItem('freemoney_guest_token', session.token);
   }
   if (!state.currentCaseId) {
-    const caseRes = await fetch(`${API_BASE}/cases`, {
+    const data = await fetchJson(`${API_BASE}/cases`, {
       method: 'POST', headers: privateHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ title: 'My assistance search', intent: state.intent || undefined }),
     });
-    const data = await caseRes.json();
-    if (!caseRes.ok || !data.case?.id) throw new Error(data.error || 'Could not create private assistance case');
+    if (!data.case?.id) throw new Error('Could not create private assistance case');
     state.currentCaseId = data.case.id;
     localStorage.setItem('freemoney_case_id', data.case.id);
   }
@@ -331,7 +374,10 @@ async function executeNaturalLanguageSearch() {
       <style>@keyframes fm-spin{to{transform:rotate(360deg)}}</style>
     </div>`;
   try {
-    const caseId = await ensureGuestCase();
+    window.__fmRetry = executeNaturalLanguageSearch;
+    // Saving the search privately is optional; never block results on it.
+    let caseId;
+    try { caseId = await ensureGuestCase(); } catch (e) { console.warn('guest case unavailable', e); }
     const payload = {
       text: state.naturalQuery,
       case_id: caseId,
@@ -339,13 +385,11 @@ async function executeNaturalLanguageSearch() {
       user_profile: state.userProfile || undefined,
       business_profile: state.businessProfile || undefined,
     };
-    const res = await fetch(`${API_BASE}/search/natural-language`, {
+    const data = await fetchJson(`${API_BASE}/search/natural-language`, {
       method: 'POST',
       headers: privateHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.details || data.error || 'Search failed');
     state.intent = data.interpretation?.search?.intent || state.intent;
     renderOpportunityCards(data.results || [], container, data);
     const detected = data.interpretation?.detected || {};
@@ -365,7 +409,7 @@ async function executeNaturalLanguageSearch() {
         <div style="color:var(--text-dim);font-size:.84rem;margin-top:8px;">This interpretation narrows the search; it does not claim you qualify. This inquiry is saved privately to this guest session so you can continue it.</div>
       </div>`);
   } catch (err) {
-    container.innerHTML = `<div style="color:var(--danger);text-align:center;padding:30px;">${escapeHtml(err.message || 'Natural-language search failed.')}</div>`;
+    container.innerHTML = friendlyErrorHtml(err.friendly ? FRIENDLY_ERROR : (err.message || FRIENDLY_ERROR));
   }
 }
 
@@ -396,20 +440,15 @@ async function executeSearch() {
       business_profile: state.intent === 'BUSINESS_ASSISTANCE' ? state.businessProfile || undefined : undefined,
     };
 
-    const res = await fetch(`${API_BASE}/search`, {
+    window.__fmRetry = executeSearch;
+    const data = await fetchJson(`${API_BASE}/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-
-    const data = await res.json();
     renderOpportunityCards(data.results || [], container, data);
   } catch (err) {
-    container.innerHTML = `
-      <div style="color: var(--danger); text-align: center; padding: 30px;">
-        Search failed. Please ensure the server and database are running.
-      </div>
-    `;
+    container.innerHTML = friendlyErrorHtml(err.friendly ? FRIENDLY_ERROR : (err.message || FRIENDLY_ERROR));
   }
 }
 

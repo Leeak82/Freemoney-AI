@@ -57,6 +57,11 @@ export function classify(c: Candidate): string[] {
   // Curated programs are tagged by hand; feed records are classified by title + agency only,
   // so a passing mention in a long description (e.g. "food, clothing, shelter") doesn't count.
   const curated = (c.categories || []).length > 0;
+  if (curated) {
+    // Hand-tagged programs keep exactly their tags (e.g. WIC's "nutrition education" isn't an education program).
+    for (const slug of SENSITIVE_TOPICS) if (CATEGORY_PATTERNS[slug].test(c.title)) set.add(slug);
+    return [...set];
+  }
   const titleText = c.title;
   const fullText = curated ? `${c.title} ${c.description}` : `${c.title} ${c.provider || ''}`;
   for (const [slug, re] of Object.entries(CATEGORY_PATTERNS)) {

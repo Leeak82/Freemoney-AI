@@ -13,6 +13,7 @@ import { queryTokens } from './share/relevance.js';
 import { curatedAsRaw, honestNotice, rankAndVerify, stateProgramsAsRaw } from './share/share-search.js';
 import { detectState, normalizeStateInput } from './share/state-detect.js';
 import { STATE_PROGRAMS } from './share/state-programs.js';
+import { ensureDatabaseReady } from './db/ready.js';
 import { LinkChecker, linkChecker } from './share/link-checker.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -284,6 +285,17 @@ export function createApp(): express.Application {
   });
 
   // Private guest/account case routes are available in both SHARE_MODE and full mode.
+  if (process.env.SHARE_MODE === 'true') {
+    void ensureDatabaseReady().catch((err) => console.error('[db] not ready', err));
+    app.use(['/api/session', '/api/cases'], async (_req, res, next) => {
+      try {
+        await ensureDatabaseReady();
+        next();
+      } catch (err: any) {
+        res.status(503).json({ error: 'Private sessions are temporarily unavailable. Please try again.', details: err.message });
+      }
+    });
+  }
   app.use('/api', caseRouter);
 
   const shareMode = process.env.SHARE_MODE === 'true';
@@ -465,6 +477,17 @@ export function createApp(): express.Application {
       return next();
     }
     res.sendFile(path.join(publicDir, 'index.html'));
+  });
+
+  // Every API response is JSON, including unknown routes and crashes.
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+  app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('[error]', req.method, req.path, err);
+    if (res.headersSent) return;
+    const status = err?.type === 'entity.parse.failed' ? 400 : Number(err?.status) || 500;
+    res.status(status).json({ error: status === 400 ? 'Invalid request body' : 'Something went wrong. Please try again.' });
   });
 
   return app;

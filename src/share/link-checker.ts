@@ -71,6 +71,23 @@ export class LinkChecker {
     return result;
   }
 
+  /** Results available within `ms`; slower checks keep running in the background and fill the cache. */
+  public async checkAllWithin(urls: string[], ms: number): Promise<Map<string, LinkResult>> {
+    const out = new Map<string, LinkResult>();
+    const all = this.checkAll(urls).then((m) => { for (const [k, v] of m) out.set(k, v); });
+    for (const u of urls) {
+      const hit = this.cache.get(u);
+      if (hit && hit.expires > Date.now()) out.set(u, hit.result);
+    }
+    await Promise.race([all, new Promise((r) => setTimeout(r, ms))]).catch(() => undefined);
+    for (const u of urls) {
+      if (out.has(u)) continue;
+      const hit = this.cache.get(u);
+      if (hit) out.set(u, hit.result);
+    }
+    return new Map(out);
+  }
+
   public async checkAll(urls: string[]): Promise<Map<string, LinkResult>> {
     const unique = [...new Set(urls.filter(Boolean))];
     const out = new Map<string, LinkResult>();

@@ -10,13 +10,24 @@ export interface DbClient {
   release(): void;
 }
 
+let forceEmbedded = false;
+
 function usesEmbeddedDb(): boolean {
-  return config.DATABASE_URL.startsWith('pglite://');
+  return forceEmbedded || config.DATABASE_URL.startsWith('pglite://');
+}
+
+/** Switch to an in-memory embedded database (used when the configured Postgres is unreachable). */
+export function useEmbeddedFallback(): void {
+  forceEmbedded = true;
+}
+
+export function isEmbeddedDb(): boolean {
+  return usesEmbeddedDb();
 }
 
 function getEmbeddedDb(): PGlite {
   if (!embeddedDb) {
-    const rawPath = config.DATABASE_URL.slice('pglite://'.length);
+    const rawPath = config.DATABASE_URL.startsWith('pglite://') ? config.DATABASE_URL.slice('pglite://'.length) : 'memory';
     embeddedDb = !rawPath || rawPath === 'memory'
       ? new PGlite()
       : new PGlite(rawPath);
@@ -34,6 +45,9 @@ export function getDbPool(): Pool {
       connectionString: config.DATABASE_URL,
       max: config.DB_MAX_CONNECTIONS,
       idleTimeoutMillis: config.DB_IDLE_TIMEOUT_MS,
+      // Never let an unreachable database hang a request until the proxy returns an empty 502.
+      connectionTimeoutMillis: 5000,
+      query_timeout: 10000,
     });
 
     pool.on('error', (err) => {
